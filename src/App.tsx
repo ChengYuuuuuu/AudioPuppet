@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { CanvasPreview, RightPanel } from './components/Panel';
-import { AudioEngine, mapEnergyToMouth, resetMouthMapper, createBounceState, updateBounce, detectBassPeak } from './utils/audio';
+import { AudioEngine, mapEnergyToMouth, resetMouthMapper, createBounceState, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
 import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages } from './utils/storage';
@@ -34,13 +34,13 @@ export default function App() {
     duration: 0,
     volume: 0.7,
     energy: 0,
-    bassEnergy: 0,
     currentLyric: null,
   });
 
   const [songInfo, setSongInfo] = useState<{ title: string; artist: string; coverUrl: string } | null>(null);
   const [mouthShape, setMouthShape] = useState<MouthShape>('closed');
   const [bounceOffset, setBounceOffset] = useState(0);
+  const [currentBPM, setCurrentBPM] = useState<number | null>(null);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
 
   const audioEngineRef = useRef<AudioEngine | null>(null);
@@ -77,21 +77,28 @@ export default function App() {
       setPlaybackState((prev) => ({ ...prev, isPlaying: playing }));
     });
 
+    engine.onBPMDetected((bpm) => {
+      setCurrentBPM(bpm);
+    });
+
     engine.onFrameUpdate((audioData, currentTime) => {
       setPlaybackState((prev) => ({
         ...prev,
         currentTime,
         energy: audioData.energy,
-        bassEnergy: audioData.bassEnergy,
         duration: engine.getDuration(),
       }));
 
       const newMouth = mapEnergyToMouth(audioData.energy, config.sensitivity, performance.now());
       setMouthShape(newMouth);
 
-      const peak = detectBassPeak(audioData.bassEnergy, engine.bassHistoryData);
-      bounceStateRef.current = updateBounce(bounceStateRef.current, peak, config.bounceIntensity);
-      setBounceOffset(bounceStateRef.current.position);
+      const bpm = currentBPM;
+      if (bpm) {
+        const beatPos = (currentTime * bpm) / 60;
+        const trigger = Math.abs(beatPos - Math.round(beatPos)) < 0.03;
+        bounceStateRef.current = updateBounce(bounceStateRef.current, trigger, config.bounceIntensity);
+        setBounceOffset(bounceStateRef.current.position);
+      }
 
       const matched = getCurrentLyric(lyricsList, currentTime, config.lyricOffset);
       setPlaybackState((prev) => ({ ...prev, currentLyric: matched || null }));
@@ -101,8 +108,9 @@ export default function App() {
       setPlaybackState((prev) => ({ ...prev, isPlaying: false }));
       setMouthShape('closed');
       bounceStateRef.current = createBounceState();
+      setBounceOffset(0);
     });
-  }, [config.sensitivity, config.bounceIntensity, config.lyricOffset]);
+  }, [config.sensitivity, config.bounceIntensity, config.lyricOffset, currentBPM]);
 
   const loadAudioToEngine = useCallback(async (engine: AudioEngine, url: string) => {
     try {

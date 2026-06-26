@@ -33,7 +33,6 @@ export interface PlaybackState {
   duration: number;
   volume: number;
   energy: number;
-  bassEnergy: number;
   currentLyric: LyricLine | null;
 }
 
@@ -54,7 +53,6 @@ export interface BounceState {
 
 export interface AudioAnalyserData {
   energy: number;
-  bassEnergy: number;
   frequencyData: Uint8Array;
 }
 

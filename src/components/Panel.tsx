@@ -86,7 +86,6 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
         height: rect2.height,
         time: playbackState.currentTime,
         energy: playbackState.energy,
-        bassEnergy: playbackState.bassEnergy,
         mouthShape,
         bounceOffset,
         currentLyric,

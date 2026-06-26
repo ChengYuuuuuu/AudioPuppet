@@ -14,7 +14,6 @@ export interface RenderContext {
   height: number;
   time: number;
   energy: number;
-  bassEnergy: number;
   mouthShape: MouthShape;
   bounceOffset: number;
   currentLyric: LyricLine | null;
@@ -244,10 +243,9 @@ function drawHUD(r: RenderContext): void {
 
   const modeText = `层级: ${r.config.renderMode}`;
   const energyText = `能量: ${Math.round(r.energy)}`;
-  const bassText = `低频: ${Math.round(r.bassEnergy)}`;
   const mouthText = `口型: ${r.mouthShape}`;
 
-  ctx.fillText(`${modeText} | ${energyText} | ${bassText} | ${mouthText}`, 10, 20);
+  ctx.fillText(`${modeText} | ${energyText} | ${mouthText}`, 10, 20);
 }
 
 function roundRect(
