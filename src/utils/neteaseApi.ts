@@ -1,4 +1,4 @@
-const API_BASE = '/ncm';
+const METING_API = 'https://api.qijieya.cn/meting/';
 
 export interface NCMResponse {
   success: boolean;
@@ -19,36 +19,34 @@ export async function parseNeteaseSong(url: string): Promise<NCMResponse> {
   }
 
   try {
-    const [songRes, lyricRes, urlRes] = await Promise.all([
-      fetch(`${API_BASE}/song/detail?ids=${songId}`),
-      fetch(`${API_BASE}/lyric?id=${songId}`),
-      fetch(`${API_BASE}/song/url?id=${songId}&level=standard`),
-    ]);
+    const metaRes = await fetch(`${METING_API}?server=netease&type=song&id=${songId}`);
+    const meta = (await metaRes.json())[0];
 
-    if (!songRes.ok) throw new Error(`song/detail 返回 ${songRes.status}`);
-    if (!lyricRes.ok) throw new Error(`lyric 返回 ${lyricRes.status}`);
-    if (!urlRes.ok) throw new Error(`song/url 返回 ${urlRes.status}`);
-
-    const songData = await songRes.json();
-    const lyricData = await lyricRes.json();
-    const urlData = await urlRes.json();
-
-    const song = songData.songs?.[0];
-    if (!song) return { success: false, error: '未找到该歌曲' };
-
-    const title = song.name;
-    const artist = (song.ar || []).map((a: { name: string }) => a.name).join(', ');
-    const coverUrl = song.al?.picUrl || '';
-    const audioUrl = urlData.data?.[0]?.url || '';
-    const lyrics = lyricData.lrc?.lyric || lyricData.tlyric?.lyric || '';
-
-    if (!audioUrl) {
-      return { success: false, error: '无法获取音频地址（可能需要 VIP 或该歌曲受限制）' };
+    if (!meta.url) {
+      return { success: false, error: '该歌曲无法获取播放地址' };
     }
 
-    return { success: true, data: { title, artist, coverUrl, audioUrl, lyrics } };
+    let audioUrl = meta.url;
+    if (!audioUrl.endsWith('.mp3')) {
+      const urlRes = await fetch(audioUrl);
+      audioUrl = urlRes.url;
+    }
+
+    const lrcRes = await fetch(meta.lrc);
+    const lyrics = await lrcRes.text();
+
+    return {
+      success: true,
+      data: {
+        title: meta.name || '',
+        artist: meta.artist || '',
+        coverUrl: meta.pic || '',
+        audioUrl,
+        lyrics,
+      },
+    };
   } catch (err) {
-    return { success: false, error: 'API 请求失败，请确认已启动 `npx NeteaseCloudMusicApi@latest`（端口 3000）' };
+    return { success: false, error: 'API 请求失败，请检查网络连接' };
   }
 }
 
