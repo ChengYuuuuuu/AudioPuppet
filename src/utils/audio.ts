@@ -25,6 +25,9 @@ export class AudioEngine {
   private onEnded: (() => void) | null = null;
   private useElement = false;
 
+  private isUserPause = false;
+  private onPlayStateChange: ((playing: boolean) => void) | null = null;
+
   private bassHistory: Float32Array;
   private bassHistoryIndex = 0;
 
@@ -100,9 +103,21 @@ export class AudioEngine {
     });
   }
 
+  onPlayStateChangeCallback(callback: (playing: boolean) => void): void {
+    this.onPlayStateChange = callback;
+  }
+
+  private setPlaying(v: boolean): void {
+    if (this.isPlaying === v) return;
+    this.isPlaying = v;
+    this.onPlayStateChange?.(v);
+  }
+
   play(): void {
     if (!this.context || (!this.buffer && !this.audioElement)) return;
     if (this.isPlaying) return;
+
+    this.isUserPause = false;
 
     if (this.context.state === 'suspended') {
       this.context.resume();
@@ -115,10 +130,10 @@ export class AudioEngine {
       this.gainNode!.connect(this.context.destination);
       this.audioElement.currentTime = this.pauseOffset;
       this.audioElement.play();
-      this.isPlaying = true;
+      this.setPlaying(true);
       this.startLoop();
       this.audioElement.onended = () => {
-        this.isPlaying = false;
+        this.setPlaying(false);
         this.pauseOffset = 0;
         this.onEnded?.();
       };
@@ -135,11 +150,11 @@ export class AudioEngine {
 
     this.source.start(0, this.pauseOffset);
     this.startTime = this.context.currentTime - this.pauseOffset;
-    this.isPlaying = true;
+    this.setPlaying(true);
 
     this.source.onended = () => {
-      if (this.isPlaying) {
-        this.isPlaying = false;
+      if (!this.isUserPause && this.isPlaying) {
+        this.setPlaying(false);
         this.pauseOffset = 0;
         this.onEnded?.();
       }
@@ -149,35 +164,43 @@ export class AudioEngine {
   }
 
   pause(): void {
+    this.isUserPause = true;
     if (this.useElement && this.audioElement) {
       this.audioElement.pause();
       this.pauseOffset = this.audioElement.currentTime;
+      this.setPlaying(false);
     } else if (this.context && this.source) {
       this.source.stop();
+      this.source?.disconnect();
+      this.source = null;
       this.pauseOffset = this.context.currentTime - this.startTime;
+      this.setPlaying(false);
     }
-    this.isPlaying = false;
     this.stopLoop();
   }
 
   stop(): void {
+    this.isUserPause = true;
     if (this.useElement && this.audioElement) {
       this.audioElement.pause();
       this.audioElement.currentTime = 0;
     } else {
-      try { this.source?.stop(); } catch {}
+      this.source?.stop();
+      this.source?.disconnect();
+      this.source = null;
     }
-    this.isPlaying = false;
+    this.setPlaying(false);
     this.pauseOffset = 0;
     this.stopLoop();
   }
 
   seek(time: number): void {
+    const target = Math.min(Math.max(time, 0), this.duration);
     const wasPlaying = this.isPlaying;
 
     if (this.useElement && this.audioElement) {
-      this.pauseOffset = Math.min(time, this.duration);
-      this.audioElement.currentTime = this.pauseOffset;
+      this.pauseOffset = target;
+      this.audioElement.currentTime = target;
       if (wasPlaying) {
         this.audioElement.play().catch(() => {});
       }
@@ -185,13 +208,16 @@ export class AudioEngine {
     }
 
     if (!this.buffer) return;
-    if (wasPlaying) {
-      this.source?.stop();
-      this.stopLoop();
-    }
 
-    this.pauseOffset = Math.min(time, this.duration);
-    this.isPlaying = false;
+    if (this.source) {
+      this.source.onended = null;
+      try { this.source.stop(); } catch {}
+      this.source.disconnect();
+      this.source = null;
+    }
+    this.stopLoop();
+
+    this.pauseOffset = target;
 
     if (wasPlaying && this.context) {
       this.source = this.context.createBufferSource();
@@ -201,7 +227,14 @@ export class AudioEngine {
       this.gainNode!.connect(this.context.destination);
       this.source.start(0, this.pauseOffset);
       this.startTime = this.context.currentTime - this.pauseOffset;
-      this.isPlaying = true;
+      this.source.onended = () => {
+        if (!this.isUserPause && this.isPlaying) {
+          this.setPlaying(false);
+          this.pauseOffset = 0;
+          this.onEnded?.();
+        }
+      };
+      this.onFrame?.({ energy: 0, bassEnergy: 0, frequencyData: new Uint8Array(0) }, this.pauseOffset);
       this.startLoop();
     }
   }
@@ -294,7 +327,7 @@ export class AudioEngine {
     this.mediaSource = null;
     this.audioElement = null;
     this.buffer = null;
-    this.isPlaying = false;
+    this.setPlaying(false);
     this.pauseOffset = 0;
     this.duration = 0;
     this.useElement = false;

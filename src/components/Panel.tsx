@@ -1,4 +1,4 @@
-import { useState, useCallback, forwardRef, useEffect, useRef } from 'react';
+import { useState, useCallback, forwardRef, useEffect } from 'react';
 import {
   type CharacterAssets,
   type RenderMode,
@@ -8,194 +8,10 @@ import {
   type LyricLine,
   type MouthShape,
 } from '../types/index';
-import { parseNeteaseSong, extractSongId } from '../utils/api';
-import { saveBaseImage, saveMouthImages, loadMouthOffset } from '../utils/storage';
+import { parseNeteaseSong } from '../utils/api';
+import { saveBaseImage, saveMouthImages } from '../utils/storage';
 import { renderFrame, type RenderContext } from '../utils/renderer';
 import { AudioEngine } from '../utils/audio';
-import { exportVideo, exportGIF, downloadBlob } from '../utils/renderer';
-
-// ── LeftPanel ──
-
-interface LeftPanelProps {
-  assets: CharacterAssets;
-  onAssetsChange: (assets: CharacterAssets) => void;
-  config: { renderMode: RenderMode };
-  onModeChange: (mode: RenderMode) => void;
-  onSongLoad: (data: { title: string; artist: string; coverUrl: string; audioUrl: string; lyrics: string }) => void;
-  onLyricsLoad: (lrcText: string) => void;
-  onLocalAudioLoad: (file: File) => void;
-}
-
-const MOUTH_KEYS: (keyof MouthImages)[] = ['A', 'E', 'I', 'O', 'U'];
-
-export function LeftPanel({
-  assets,
-  onAssetsChange,
-  config,
-  onModeChange,
-  onSongLoad,
-  onLyricsLoad,
-  onLocalAudioLoad,
-}: LeftPanelProps) {
-  const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [songInfo, setSongInfo] = useState<{
-    title: string;
-    artist: string;
-    coverUrl: string;
-  } | null>(null);
-
-  const handleParse = useCallback(async () => {
-    if (!url.trim()) return;
-    setLoading(true);
-    setError('');
-
-    const result = await parseNeteaseSong(url);
-    if (result.success && result.data) {
-      setSongInfo({
-        title: result.data.title,
-        artist: result.data.artist,
-        coverUrl: result.data.coverUrl,
-      });
-      onSongLoad(result.data);
-      onLyricsLoad(result.data.lyrics);
-    } else {
-      setError(result.error || '解析失败');
-    }
-    setLoading(false);
-  }, [url, onSongLoad, onLyricsLoad]);
-
-  const handleBaseImageUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        saveBaseImage(dataUrl);
-        onAssetsChange({ ...assets, baseImage: dataUrl });
-      };
-      reader.readAsDataURL(file);
-    },
-    [assets, onAssetsChange]
-  );
-
-  const handleMouthUpload = useCallback(
-    (key: keyof MouthImages) => (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const newMouthImages = { ...assets.mouthImages, [key]: dataUrl };
-        saveMouthImages(newMouthImages);
-        onAssetsChange({ ...assets, mouthImages: newMouthImages });
-      };
-      reader.readAsDataURL(file);
-    },
-    [assets, onAssetsChange]
-  );
-
-  return (
-    <div className="left-panel">
-      <div className="panel-section">
-        <h3>渲染模式</h3>
-        <div className="mode-switcher">
-          {(['L1', 'L2', 'L3'] as RenderMode[]).map((mode) => (
-            <button
-              key={mode}
-              className={`mode-btn ${config.renderMode === mode ? 'active' : ''}`}
-              onClick={() => onModeChange(mode)}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="panel-section">
-        <h3>网易云音乐</h3>
-        <div className="input-group">
-          <input
-            type="url"
-            placeholder="粘贴网易云歌曲链接..."
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-          <button
-            className="btn btn-primary btn-full"
-            onClick={handleParse}
-            disabled={loading || !url.trim()}
-          >
-            {loading ? <><span className="spinner" /> 解析中...</> : '解析'}
-          </button>
-        </div>
-        {error && <div style={{ color: '#f44336', fontSize: 12 }}>{error}</div>}
-        {songInfo && (
-          <div className="song-info">
-            {songInfo.coverUrl && <img src={songInfo.coverUrl} alt="" />}
-            <div className="details">
-              <div className="title">{songInfo.title}</div>
-              <div className="artist">{songInfo.artist}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="panel-section">
-        <h3>本地音频</h3>
-        <div className="file-upload">
-          <label className="file-upload-label">
-            上传 MP3 文件
-            <input
-              type="file"
-              accept="audio/mp3,audio/mpeg,audio/wav"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onLocalAudioLoad(file);
-              }}
-            />
-          </label>
-        </div>
-      </div>
-
-      {(config.renderMode === 'L2' || config.renderMode === 'L3') && (
-        <div className="panel-section">
-          <h3>角色底图</h3>
-          <div className="file-upload">
-            <label
-              className={`file-upload-label ${assets.baseImage ? 'uploaded' : ''}`}
-            >
-              {assets.baseImage ? '已上传 ✓' : '上传 PNG 底图'}
-              <input type="file" accept="image/png,image/jpeg" onChange={handleBaseImageUpload} />
-            </label>
-          </div>
-        </div>
-      )}
-
-      {config.renderMode === 'L3' && (
-        <div className="panel-section">
-          <h3>口型图 (PNG)</h3>
-          {MOUTH_KEYS.map((key) => (
-            <div className="file-upload" key={key}>
-              <label
-                className={`file-upload-label ${assets.mouthImages[key] ? 'uploaded' : ''}`}
-              >
-                {assets.mouthImages[key] ? `${key} ✓` : `${key}.png`}
-                <input
-                  type="file"
-                  accept="image/png"
-                  onChange={handleMouthUpload(key)}
-                />
-              </label>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── CanvasPreview ──
 
@@ -300,7 +116,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
   );
 });
 
-// ── RightPanel ──
+// ── RightPanel (iPod style, all-in-one) ──
 
 interface RightPanelProps {
   audioEngine: AudioEngine | null;
@@ -308,17 +124,56 @@ interface RightPanelProps {
   config: UIConfig;
   onConfigChange: (config: Partial<UIConfig>) => void;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  assets: CharacterAssets;
+  onAssetsChange: (assets: CharacterAssets) => void;
+  onModeChange: (mode: RenderMode) => void;
+  onSongLoad: (data: { title: string; artist: string; coverUrl: string; audioUrl: string; lyrics: string }) => void;
+  onLyricsLoad: (lrcText: string) => void;
 }
+
+const MOUTH_KEYS: (keyof MouthImages)[] = ['A', 'E', 'I', 'O', 'U'];
 
 export function RightPanel({
   audioEngine,
   playbackState,
   config,
   onConfigChange,
-  canvasRef,
+  assets,
+  onAssetsChange,
+  onModeChange,
+  onSongLoad,
+  onLyricsLoad,
 }: RightPanelProps) {
-  const [exporting, setExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [songInfo, setSongInfo] = useState<{
+    title: string;
+    artist: string;
+    coverUrl: string;
+  } | null>(null);
+
+  const handleParse = useCallback(async () => {
+    if (!url.trim()) return;
+    setLoading(true);
+    setError('');
+
+    const result = await parseNeteaseSong(url);
+    if (result.success && result.data) {
+      setSongInfo({
+        title: result.data.title,
+        artist: result.data.artist,
+        coverUrl: result.data.coverUrl,
+      });
+      onSongLoad(result.data);
+      onLyricsLoad(result.data.lyrics);
+    } else {
+      setError(result.error || '解析失败');
+    }
+    setLoading(false);
+  }, [url, onSongLoad, onLyricsLoad]);
+
+  const [dragTime, setDragTime] = useState<number | null>(null);
 
   const handlePlayPause = useCallback(() => {
     if (!audioEngine) return;
@@ -329,67 +184,53 @@ export function RightPanel({
     }
   }, [audioEngine, playbackState.isPlaying]);
 
-  const handleStop = useCallback(() => {
-    audioEngine?.stop();
-  }, [audioEngine]);
-
-  const handleSeek = useCallback(
+  const handleSeekDrag = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const time = parseFloat(e.target.value);
-      audioEngine?.seek(time);
+      setDragTime(parseFloat(e.target.value));
     },
-    [audioEngine]
+    []
   );
 
-  const handleVolume = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const vol = parseFloat(e.target.value);
-      audioEngine?.setVolume(vol);
-    },
-    [audioEngine]
-  );
-
-  const handleExportVideo = useCallback(async () => {
-    if (!audioEngine) return;
-    setExporting(true);
-    setExportProgress(0);
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    try {
-      const duration = audioEngine.getDuration();
-      const blob = await exportVideo(
-        canvas,
-        audioEngine.getAudioContext(),
-        duration,
-        (p) => setExportProgress(p)
-      );
-      downloadBlob(blob, 'lip-sync-video.webm');
-    } catch (err) {
-      console.error('导出失败:', err);
-    } finally {
-      setExporting(false);
-      setExportProgress(0);
-    }
-  }, [audioEngine, canvasRef]);
-
-  const handleExportGIF = useCallback(async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    setExporting(true);
-
-    try {
-      const blob = await exportGIF(canvas, 3);
-      if (blob) {
-        downloadBlob(blob, 'lip-sync.gif');
+  const handleSeekEnd = useCallback(
+    () => {
+      if (dragTime !== null) {
+        audioEngine?.seek(dragTime);
+        setDragTime(null);
       }
-    } catch (err) {
-      console.error('GIF导出失败:', err);
-    } finally {
-      setExporting(false);
-    }
-  }, [canvasRef]);
+    },
+    [audioEngine, dragTime]
+  );
+
+  const handleBaseImageUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        saveBaseImage(dataUrl);
+        onAssetsChange({ ...assets, baseImage: dataUrl });
+      };
+      reader.readAsDataURL(file);
+    },
+    [assets, onAssetsChange]
+  );
+
+  const handleMouthUpload = useCallback(
+    (key: keyof MouthImages) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const newMouthImages = { ...assets.mouthImages, [key]: dataUrl };
+        saveMouthImages(newMouthImages);
+        onAssetsChange({ ...assets, mouthImages: newMouthImages });
+      };
+      reader.readAsDataURL(file);
+    },
+    [assets, onAssetsChange]
+  );
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -399,152 +240,128 @@ export function RightPanel({
 
   return (
     <div className="right-panel">
-      <div className="panel-section">
-        <h3>播放控制</h3>
-        <div className="btn-group">
-          <button className="btn btn-primary" onClick={handlePlayPause}>
-            {playbackState.isPlaying ? '⏸ 暂停' : '▶ 播放'}
-          </button>
-          <button className="btn btn-secondary" onClick={handleStop}>
-            ⏹ 停止
-          </button>
-        </div>
+      {/* 1. Song Import */}
+      <div className="song-import">
+        <input
+          type="url"
+          placeholder="网易云链接..."
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+        <button onClick={handleParse} disabled={loading || !url.trim()}>
+          {loading ? <span className="spinner" /> : '解析'}
+        </button>
+      </div>
+      {error && <div className="error-text">{error}</div>}
 
-        <div className="slider-group">
-          <label>音量</label>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={playbackState.volume}
-            onChange={handleVolume}
-          />
-        </div>
+      {/* 2. Cover Box */}
+      <div className="cover-box">
+        {songInfo?.coverUrl ? (
+          <img src={songInfo.coverUrl} alt="" />
+        ) : (
+          <div className="cover-placeholder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+            <span>No Song</span>
+          </div>
+        )}
       </div>
 
-      <div className="panel-section">
-        <h3>进度</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: '#888', fontFamily: 'monospace' }}>
-            {formatTime(playbackState.currentTime)}
-          </span>
-          <input
-            type="range"
-            className="progress-bar"
-            min="0"
-            max={playbackState.duration || 1}
-            step="0.1"
-            value={playbackState.currentTime}
-            onChange={handleSeek}
-            style={{ flex: 1 }}
-          />
-          <span style={{ fontSize: 12, color: '#888', fontFamily: 'monospace' }}>
-            {formatTime(playbackState.duration)}
-          </span>
-        </div>
+      {/* 3. Song Info */}
+      <div className="song-info-center">
+        <div className="title">{songInfo?.title || '—'}</div>
+        <div className="artist">{songInfo?.artist || '—'}</div>
       </div>
 
-      <div className="panel-section">
-        <h3>参数调节</h3>
-        <div className="slider-group">
-          <label>口型灵敏度 <span>{config.sensitivity.toFixed(1)}</span></label>
+      {/* 4. Progress + Time */}
+      <div className="progress-row">
+        <span className="time">{formatTime(dragTime !== null ? dragTime : playbackState.currentTime)}</span>
+        <input
+          type="range"
+          className="progress-bar"
+          min="0"
+          max={playbackState.duration || 1}
+          step="0.1"
+          value={dragTime !== null ? dragTime : playbackState.currentTime}
+          onChange={handleSeekDrag}
+          onMouseUp={handleSeekEnd}
+          onTouchEnd={handleSeekEnd}
+        />
+        <span className="time">{formatTime(playbackState.duration)}</span>
+      </div>
+
+      {/* 5. Play Button */}
+      <div className="play-btn-wrap">
+        <button className="play-btn" onClick={handlePlayPause}>
+          {playbackState.isPlaying ? '⏸' : '▶'}
+        </button>
+      </div>
+
+      {/* 6. Mode Switcher */}
+      <div className="mode-dots">
+        {(['L1', 'L2', 'L3'] as RenderMode[]).map((mode) => (
+          <button
+            key={mode}
+            className={`mode-dot ${config.renderMode === mode ? 'active' : ''}`}
+            onClick={() => onModeChange(mode)}
+            title={mode}
+          />
+        ))}
+      </div>
+      <div className="mode-label">{config.renderMode}</div>
+
+      {/* 7. Sliders */}
+      <div className="sliders-compact">
+        <div className="slider-row">
+          <label>灵敏度</label>
           <input
-            type="range"
-            min="0.5"
-            max="1.5"
-            step="0.1"
+            type="range" min="0.5" max="1.5" step="0.1"
             value={config.sensitivity}
             onChange={(e) => onConfigChange({ sensitivity: parseFloat(e.target.value) })}
           />
+          <span className="val">{config.sensitivity.toFixed(1)}</span>
         </div>
-        <div className="slider-group">
-          <label>弹跳幅度 <span>{config.bounceIntensity.toFixed(1)}</span></label>
+        <div className="slider-row">
+          <label>弹跳</label>
           <input
-            type="range"
-            min="0.3"
-            max="1.0"
-            step="0.1"
+            type="range" min="0.3" max="1.0" step="0.1"
             value={config.bounceIntensity}
             onChange={(e) => onConfigChange({ bounceIntensity: parseFloat(e.target.value) })}
           />
+          <span className="val">{config.bounceIntensity.toFixed(1)}</span>
         </div>
-        <div className="slider-group">
-          <label>歌词偏移 <span>{config.lyricOffset}ms</span></label>
+        <div className="slider-row">
+          <label>歌词偏移</label>
           <input
-            type="range"
-            min="-500"
-            max="500"
-            step="50"
+            type="range" min="-500" max="500" step="50"
             value={config.lyricOffset}
             onChange={(e) => onConfigChange({ lyricOffset: parseInt(e.target.value) })}
           />
+          <span className="val">{config.lyricOffset}</span>
         </div>
       </div>
 
-      <div className="panel-section">
-        <h3>背景</h3>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {['#1a1a2e', '#16213e', '#0f3460', '#533483', '#1a1a1a', '#2d2d2d', '#3d3d3d'].map(
-            (color) => (
-              <button
-                key={color}
-                onClick={() => onConfigChange({ backgroundColor: color })}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  background: color,
-                  border: config.backgroundColor === color ? '2px solid #FF6B6B' : '2px solid transparent',
-                  cursor: 'pointer',
-                }}
-              />
-            )
-          )}
+      {/* 8. Asset Uploads */}
+      {config.renderMode !== 'L1' && (
+        <div className="asset-section">
+          <div className="label">角色素材</div>
+          <div className="asset-btns">
+            <label className={`asset-btn ${assets.baseImage ? 'uploaded' : ''}`}>
+              {assets.baseImage ? '底图 ✓' : '角色底图'}
+              <input type="file" accept="image/png,image/jpeg" onChange={handleBaseImageUpload} />
+            </label>
+            {config.renderMode === 'L3' && MOUTH_KEYS.map((key) => (
+              <label key={key} className={`asset-btn ${assets.mouthImages[key] ? 'uploaded' : ''}`}>
+                {assets.mouthImages[key] ? `${key} ✓` : key}
+                <input type="file" accept="image/png" onChange={handleMouthUpload(key)} />
+              </label>
+            ))}
+          </div>
         </div>
-      </div>
-
-      <div className="panel-section">
-        <h3>导出</h3>
-        <button
-          className="export-btn"
-          onClick={handleExportVideo}
-          disabled={exporting || !audioEngine}
-        >
-          {exporting
-            ? `导出中 ${Math.round(exportProgress * 100)}%`
-            : '🎬 导出 WebM'}
-        </button>
-        <button
-          className="btn btn-secondary btn-full"
-          onClick={handleExportGIF}
-          disabled={exporting}
-          style={{ marginTop: 6 }}
-        >
-          {exporting ? '导出中...' : '🎞 导出 GIF'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── StatusBar ──
-
-interface StatusBarProps {
-  renderMode: RenderMode;
-  playbackState: PlaybackState;
-}
-
-export function StatusBar({ renderMode, playbackState }: StatusBarProps) {
-  return (
-    <div className="status-bar">
-      <span>层级: {renderMode}</span>
-      <span>|</span>
-      <span>状态: {playbackState.isPlaying ? '▶ 播放中' : '⏸ 暂停'}</span>
-      <span>|</span>
-      <span>能量: {Math.round(playbackState.energy)}</span>
-      <span>|</span>
-      <span>低频: {Math.round(playbackState.bassEnergy)}</span>
+      )}
     </div>
   );
 }

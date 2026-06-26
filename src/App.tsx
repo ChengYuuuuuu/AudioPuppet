@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { CanvasPreview, LeftPanel, RightPanel, StatusBar } from './components/Panel';
+import { CanvasPreview, RightPanel } from './components/Panel';
 import { AudioEngine, mapEnergyToMouth, resetMouthMapper, createBounceState, updateBounce, detectBassPeak } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
@@ -72,6 +72,10 @@ export default function App() {
   }, [assets.mouthImages]);
 
   const setupAudioEngine = useCallback((engine: AudioEngine, lyricsList: LyricLine[]) => {
+    engine.onPlayStateChangeCallback((playing) => {
+      setPlaybackState((prev) => ({ ...prev, isPlaying: playing }));
+    });
+
     engine.onFrameUpdate((audioData, currentTime) => {
       setPlaybackState((prev) => ({
         ...prev,
@@ -130,18 +134,6 @@ export default function App() {
     setLyrics(parseLRC(lrcText));
   }, []);
 
-  const handleLocalAudioLoad = useCallback(async (file: File) => {
-    const engine = new AudioEngine();
-    audioEngineRef.current = engine;
-    setupAudioEngine(engine, lyrics);
-    try {
-      await engine.loadFromFile(file);
-      setPlaybackState((prev) => ({ ...prev, duration: engine.getDuration() }));
-    } catch {
-      console.error('本地音频加载失败');
-    }
-  }, [setupAudioEngine, lyrics]);
-
   const handleConfigChange = useCallback((partial: Partial<UIConfig>) => {
     setConfig((prev) => {
       const next = { ...prev, ...partial };
@@ -175,16 +167,7 @@ export default function App() {
   return (
     <div className="app-container">
       <div className="main-layout">
-        <LeftPanel
-          assets={assets}
-          onAssetsChange={handleAssetsChange}
-          config={config}
-          onModeChange={handleModeChange}
-          onSongLoad={handleSongLoad}
-          onLyricsLoad={handleLyricsLoad}
-          onLocalAudioLoad={handleLocalAudioLoad}
-        />
-        <div className="center-panel">
+        <div className="canvas-area">
           <CanvasPreview
             ref={canvasRef}
             audioEngine={audioEngineRef.current}
@@ -203,9 +186,13 @@ export default function App() {
           config={config}
           onConfigChange={handleConfigChange}
           canvasRef={canvasRef}
+          assets={assets}
+          onAssetsChange={handleAssetsChange}
+          onModeChange={handleModeChange}
+          onSongLoad={handleSongLoad}
+          onLyricsLoad={handleLyricsLoad}
         />
       </div>
-      <StatusBar renderMode={config.renderMode} playbackState={playbackState} />
     </div>
   );
 }

@@ -28,7 +28,7 @@ export interface RenderContext {
 
 const EMOJI = '🐱';
 const COLORS = {
-  mouthLabel: '#FF6B6B',
+  mouthLabel: '#4A90D9',
   lyricBg: 'rgba(255,255,255,0.95)',
   lyricText: '#333',
   lyricBorder: '#ddd',
@@ -39,7 +39,7 @@ export function renderFrame(r: RenderContext): void {
   const { ctx, width, height } = r;
   ctx.clearRect(0, 0, width, height);
 
-  drawBackground(ctx, width, height, r.config.backgroundColor);
+  drawBackground(ctx, width, height);
   drawCharacter(r);
   drawLyrics(r);
   drawHUD(r);
@@ -48,10 +48,9 @@ export function renderFrame(r: RenderContext): void {
 function drawBackground(
   ctx: CanvasRenderingContext2D,
   width: number,
-  height: number,
-  color: string
+  height: number
 ): void {
-  ctx.fillStyle = color;
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 }
 
