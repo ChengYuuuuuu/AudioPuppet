@@ -1,4 +1,12 @@
-import { type AudioAnalyserData } from '../types/index';
+import {
+  type AudioAnalyserData,
+  type BounceState,
+  type MouthShape,
+  MOUTH_THRESHOLDS,
+  MOUTH_SHAPES,
+} from '../types/index';
+
+// ── AudioEngine ──
 
 export class AudioEngine {
   private context: AudioContext | null = null;
@@ -83,7 +91,7 @@ export class AudioEngine {
           this.duration = this.buffer.duration;
           this.useElement = false;
           resolve();
-        } catch (e) {
+        } catch {
           reject(new Error('音频解码失败'));
         }
       };
@@ -301,4 +309,121 @@ export class AudioEngine {
   get playing(): boolean {
     return this.isPlaying;
   }
+}
+
+// ── Mouth Mapper ──
+
+let lastMouth: MouthShape = 'closed';
+let lastSwitchTime = 0;
+let randomMouthTimer = 0;
+let lastRandomMouth: MouthShape = 'A';
+
+const DEBOUNCE_MS = 50;
+const RANDOM_SWITCH_MS = 100;
+
+export function mapEnergyToMouth(
+  energy: number,
+  sensitivity: number,
+  now: number
+): MouthShape {
+  const adjusted = energy * sensitivity;
+
+  if (adjusted < MOUTH_THRESHOLDS.closed) {
+    if (lastMouth !== 'closed' && now - lastSwitchTime < DEBOUNCE_MS) {
+      return lastMouth;
+    }
+    lastMouth = 'closed';
+    lastSwitchTime = now;
+    return 'closed';
+  }
+
+  if (adjusted < MOUTH_THRESHOLDS.E) {
+    if (lastMouth !== 'E' && now - lastSwitchTime < DEBOUNCE_MS) {
+      return lastMouth;
+    }
+    lastMouth = 'E';
+    lastSwitchTime = now;
+    return 'E';
+  }
+
+  if (adjusted < MOUTH_THRESHOLDS.A) {
+    if (lastMouth !== 'A' && now - lastSwitchTime < DEBOUNCE_MS) {
+      return lastMouth;
+    }
+    lastMouth = 'A';
+    lastSwitchTime = now;
+    return 'A';
+  }
+
+  if (adjusted < MOUTH_THRESHOLDS.random) {
+    if (now - randomMouthTimer >= RANDOM_SWITCH_MS) {
+      let next: MouthShape;
+      do {
+        next = MOUTH_SHAPES[Math.floor(Math.random() * MOUTH_SHAPES.length)];
+      } while (next === lastRandomMouth);
+      lastRandomMouth = next;
+      randomMouthTimer = now;
+      lastMouth = next;
+      lastSwitchTime = now;
+      return next;
+    }
+    return lastMouth;
+  }
+
+  if (adjusted >= MOUTH_THRESHOLDS.random) {
+    if (lastMouth !== 'O' && now - lastSwitchTime < DEBOUNCE_MS) {
+      return lastMouth;
+    }
+    lastMouth = 'O';
+    lastSwitchTime = now;
+    return 'O';
+  }
+
+  return 'closed';
+}
+
+export function resetMouthMapper(): void {
+  lastMouth = 'closed';
+  lastSwitchTime = 0;
+  randomMouthTimer = 0;
+  lastRandomMouth = 'A';
+}
+
+// ── Bounce Engine ──
+
+export function createBounceState(): BounceState {
+  return { position: 0, velocity: 0, isBouncing: false };
+}
+
+export function updateBounce(
+  state: BounceState,
+  trigger: boolean,
+  intensity: number
+): BounceState {
+  let { position, velocity } = state;
+
+  if (trigger) {
+    velocity = -intensity * 15;
+  }
+
+  if (Math.abs(position) > 0.1 || Math.abs(velocity) > 0.1) {
+    position += velocity;
+    velocity *= 0.92;
+    return { position, velocity, isBouncing: true };
+  }
+
+  return { position: 0, velocity: 0, isBouncing: false };
+}
+
+export function detectBassPeak(
+  bassEnergy: number,
+  history: Float32Array,
+  threshold: number = 1.3
+): boolean {
+  let sum = 0;
+  for (let i = 0; i < history.length; i++) {
+    sum += history[i];
+  }
+  const avg = sum / history.length;
+  return bassEnergy > avg * threshold && bassEnergy > 30;
 }

@@ -1,14 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import CanvasPreview from './components/CanvasPreview';
-import LeftPanel from './components/LeftPanel';
-import RightPanel from './components/RightPanel';
-import StatusBar from './components/StatusBar';
-import { AudioEngine } from './utils/audioEngine';
-import { parseLRC } from './utils/lyricsParser';
-import { mapEnergyToMouth, resetMouthMapper } from './utils/mouthMapper';
-import { createBounceState, updateBounce, detectBassPeak } from './utils/bounceEngine';
-import { loadImage } from './utils/canvasRenderer';
-import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages, saveBaseImage, saveMouthImages } from './utils/storage';
+import { CanvasPreview, LeftPanel, RightPanel, StatusBar } from './components/Panel';
+import { AudioEngine, mapEnergyToMouth, resetMouthMapper, createBounceState, updateBounce, detectBassPeak } from './utils/audio';
+import { parseLRC, getCurrentLyric } from './utils/api';
+import { loadImage } from './utils/renderer';
+import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages } from './utils/storage';
 import {
   type LyricLine,
   type CharacterAssets,
@@ -213,17 +208,4 @@ export default function App() {
       <StatusBar renderMode={config.renderMode} playbackState={playbackState} />
     </div>
   );
-}
-
-function getCurrentLyric(lyrics: LyricLine[], currentTime: number, offset: number): LyricLine | null {
-  const adjustedTime = currentTime + offset / 1000;
-  let result: LyricLine | null = null;
-  for (const line of lyrics) {
-    if (line.time <= adjustedTime) {
-      result = line;
-    } else {
-      break;
-    }
-  }
-  return result;
 }
