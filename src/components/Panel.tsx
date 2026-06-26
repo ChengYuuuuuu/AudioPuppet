@@ -110,13 +110,11 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
   }, [ref, playbackState, mouthShape, bounceOffset, assets, config, baseImageLoaded, mouthImagesLoaded]);
 
   return (
-    <div className="canvas-wrapper">
-      <canvas ref={ref as React.Ref<HTMLCanvasElement>} style={{ width: '100%', height: '100%' }} />
-    </div>
+    <canvas ref={ref as React.Ref<HTMLCanvasElement>} style={{ width: '100%', height: '100%' }} />
   );
 });
 
-// ── RightPanel (iPod style, all-in-one) ──
+// ── RightPanel ──
 
 interface RightPanelProps {
   audioEngine: AudioEngine | null;
@@ -129,6 +127,7 @@ interface RightPanelProps {
   onModeChange: (mode: RenderMode) => void;
   onSongLoad: (data: { title: string; artist: string; coverUrl: string; audioUrl: string; lyrics: string }) => void;
   onLyricsLoad: (lrcText: string) => void;
+  songInfo: { title: string; artist: string; coverUrl: string } | null;
 }
 
 const MOUTH_KEYS: (keyof MouthImages)[] = ['A', 'E', 'I', 'O', 'U'];
@@ -143,28 +142,19 @@ export function RightPanel({
   onModeChange,
   onSongLoad,
   onLyricsLoad,
+  songInfo,
 }: RightPanelProps) {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [songInfo, setSongInfo] = useState<{
-    title: string;
-    artist: string;
-    coverUrl: string;
-  } | null>(null);
+  const [dragTime, setDragTime] = useState<number | null>(null);
 
   const handleParse = useCallback(async () => {
     if (!url.trim()) return;
     setLoading(true);
     setError('');
-
     const result = await parseNeteaseSong(url);
     if (result.success && result.data) {
-      setSongInfo({
-        title: result.data.title,
-        artist: result.data.artist,
-        coverUrl: result.data.coverUrl,
-      });
       onSongLoad(result.data);
       onLyricsLoad(result.data.lyrics);
     } else {
@@ -172,8 +162,6 @@ export function RightPanel({
     }
     setLoading(false);
   }, [url, onSongLoad, onLyricsLoad]);
-
-  const [dragTime, setDragTime] = useState<number | null>(null);
 
   const handlePlayPause = useCallback(() => {
     if (!audioEngine) return;
@@ -184,22 +172,16 @@ export function RightPanel({
     }
   }, [audioEngine, playbackState.isPlaying]);
 
-  const handleSeekDrag = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setDragTime(parseFloat(e.target.value));
-    },
-    []
-  );
+  const handleSeekDrag = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setDragTime(parseFloat(e.target.value));
+  }, []);
 
-  const handleSeekEnd = useCallback(
-    () => {
-      if (dragTime !== null) {
-        audioEngine?.seek(dragTime);
-        setDragTime(null);
-      }
-    },
-    [audioEngine, dragTime]
-  );
+  const handleSeekEnd = useCallback(() => {
+    if (dragTime !== null) {
+      audioEngine?.seek(dragTime);
+      setDragTime(null);
+    }
+  }, [audioEngine, dragTime]);
 
   const handleBaseImageUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -240,6 +222,8 @@ export function RightPanel({
 
   return (
     <div className="right-panel">
+      <div className="right-panel-logo">对口型</div>
+
       {/* 1. Song Import */}
       <div className="song-import">
         <input
@@ -254,7 +238,7 @@ export function RightPanel({
       </div>
       {error && <div className="error-text">{error}</div>}
 
-      {/* 2. Cover Box */}
+      {/* 2. Cover */}
       <div className="cover-box">
         {songInfo?.coverUrl ? (
           <img src={songInfo.coverUrl} alt="" />
@@ -271,8 +255,8 @@ export function RightPanel({
       </div>
 
       {/* 3. Song Info */}
-      <div className="song-info-center">
-        <div className="title">{songInfo?.title || '—'}</div>
+      <div className="song-info-right">
+        <div className="title font-title">{songInfo?.title || '—'}</div>
         <div className="artist">{songInfo?.artist || '—'}</div>
       </div>
 
@@ -295,23 +279,33 @@ export function RightPanel({
 
       {/* 5. Play Button */}
       <div className="play-btn-wrap">
-        <button className="play-btn" onClick={handlePlayPause}>
-          {playbackState.isPlaying ? '⏸' : '▶'}
+        <button className="play-btn-big" onClick={handlePlayPause}>
+          {playbackState.isPlaying ? (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
+            </svg>
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+          )}
         </button>
       </div>
 
-      {/* 6. Mode Switcher */}
-      <div className="mode-dots">
-        {(['L1', 'L2', 'L3'] as RenderMode[]).map((mode) => (
-          <button
-            key={mode}
-            className={`mode-dot ${config.renderMode === mode ? 'active' : ''}`}
-            onClick={() => onModeChange(mode)}
-            title={mode}
-          />
-        ))}
+      {/* 6. Mode Dots */}
+      <div>
+        <div className="mode-dots">
+          {(['L1', 'L2', 'L3'] as RenderMode[]).map((mode) => (
+            <button
+              key={mode}
+              className={`mode-dot ${config.renderMode === mode ? 'active' : ''}`}
+              onClick={() => onModeChange(mode)}
+              title={mode}
+            />
+          ))}
+        </div>
+        <div className="mode-label">{config.renderMode}</div>
       </div>
-      <div className="mode-label">{config.renderMode}</div>
 
       {/* 7. Sliders */}
       <div className="sliders-compact">

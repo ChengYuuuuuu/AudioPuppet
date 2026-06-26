@@ -38,6 +38,7 @@ export default function App() {
     currentLyric: null,
   });
 
+  const [songInfo, setSongInfo] = useState<{ title: string; artist: string; coverUrl: string } | null>(null);
   const [mouthShape, setMouthShape] = useState<MouthShape>('closed');
   const [bounceOffset, setBounceOffset] = useState(0);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
@@ -114,6 +115,8 @@ export default function App() {
 
   const handleSongLoad = useCallback(
     (data: { title: string; artist: string; coverUrl: string; audioUrl: string; lyrics: string }) => {
+      setSongInfo({ title: data.title, artist: data.artist, coverUrl: data.coverUrl });
+
       let lyricsList: LyricLine[] = [];
       if (data.lyrics) {
         lyricsList = parseLRC(data.lyrics);
@@ -168,17 +171,21 @@ export default function App() {
     <div className="app-container">
       <div className="main-layout">
         <div className="canvas-area">
-          <CanvasPreview
-            ref={canvasRef}
-            audioEngine={audioEngineRef.current}
-            assets={assets}
-            config={config}
-            playbackState={playbackState}
-            mouthShape={mouthShape}
-            bounceOffset={bounceOffset}
-            baseImageLoaded={baseImageLoaded}
-            mouthImagesLoaded={mouthImagesLoaded}
-          />
+          <div className="canvas-wrap">
+            <div className="canvas-frame">
+              <CanvasPreview
+                ref={canvasRef}
+                audioEngine={audioEngineRef.current}
+                assets={assets}
+                config={config}
+                playbackState={playbackState}
+                mouthShape={mouthShape}
+                bounceOffset={bounceOffset}
+                baseImageLoaded={baseImageLoaded}
+                mouthImagesLoaded={mouthImagesLoaded}
+              />
+            </div>
+          </div>
         </div>
         <RightPanel
           audioEngine={audioEngineRef.current}
@@ -191,6 +198,7 @@ export default function App() {
           onModeChange={handleModeChange}
           onSongLoad={handleSongLoad}
           onLyricsLoad={handleLyricsLoad}
+          songInfo={songInfo}
         />
       </div>
     </div>
