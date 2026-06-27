@@ -1,4 +1,3 @@
-import { createRealtimeBpmAnalyzer, type RealtimeBpmAnalyzer } from 'realtime-bpm-analyzer';
 import {
   type AudioAnalyserData,
   type BounceState,
@@ -29,10 +28,6 @@ export class AudioEngine {
   private isUserPause = false;
   private onPlayStateChange: ((playing: boolean) => void) | null = null;
 
-  private bpmAnalyzer: RealtimeBpmAnalyzer | null = null;
-  private bpmCallbacks: ((bpm: number) => void)[] = [];
-  private isWorkletReady = false;
-
   async loadAudio(url: string): Promise<void> {
     this.destroy();
     this.context = new AudioContext();
@@ -52,8 +47,6 @@ export class AudioEngine {
     this.analyser.fftSize = 256;
     this.gainNode = this.context.createGain();
     this.gainNode.gain.value = 0.7;
-
-    this.initBpmAnalyzer();
   }
 
   private loadViaElement(url: string): Promise<void> {
@@ -85,7 +78,6 @@ export class AudioEngine {
       this.analyser.fftSize = 256;
       this.gainNode = this.context.createGain();
       this.gainNode.gain.value = 0.7;
-      this.initBpmAnalyzer();
 
       const reader = new FileReader();
       reader.onload = async () => {
@@ -126,12 +118,7 @@ export class AudioEngine {
 
     if (this.useElement && this.audioElement) {
       this.mediaSource = this.context.createMediaElementSource(this.audioElement);
-      if (this.bpmAnalyzer && this.isWorkletReady) {
-        this.mediaSource.connect(this.bpmAnalyzer.node);
-        this.bpmAnalyzer.node.connect(this.analyser!);
-      } else {
-        this.mediaSource.connect(this.analyser!);
-      }
+      this.mediaSource.connect(this.analyser!);
       this.analyser!.connect(this.gainNode!);
       this.gainNode!.connect(this.context.destination);
       this.audioElement.currentTime = this.pauseOffset;
@@ -150,12 +137,7 @@ export class AudioEngine {
 
     this.source = this.context.createBufferSource();
     this.source.buffer = this.buffer;
-    if (this.bpmAnalyzer && this.isWorkletReady) {
-      this.source.connect(this.bpmAnalyzer.node);
-      this.bpmAnalyzer.node.connect(this.analyser!);
-    } else {
-      this.source.connect(this.analyser!);
-    }
+    this.source.connect(this.analyser!);
     this.analyser!.connect(this.gainNode!);
     this.gainNode!.connect(this.context.destination);
 
@@ -233,12 +215,7 @@ export class AudioEngine {
     if (wasPlaying && this.context) {
       this.source = this.context.createBufferSource();
       this.source.buffer = this.buffer;
-      if (this.bpmAnalyzer && this.isWorkletReady) {
-        this.source.connect(this.bpmAnalyzer.node);
-        this.bpmAnalyzer.node.connect(this.analyser!);
-      } else {
-        this.source.connect(this.analyser!);
-      }
+      this.source.connect(this.analyser!);
       this.analyser!.connect(this.gainNode!);
       this.gainNode!.connect(this.context.destination);
       this.source.start(0, this.pauseOffset);
@@ -288,26 +265,6 @@ export class AudioEngine {
     this.onEnded = callback;
   }
 
-  onBPMDetected(callback: (bpm: number) => void): void {
-    this.bpmCallbacks.push(callback);
-  }
-
-  async initBpmAnalyzer(): Promise<void> {
-    if (!this.context || this.isWorkletReady) return;
-    try {
-      const analyzer = await createRealtimeBpmAnalyzer(this.context);
-      this.bpmAnalyzer = analyzer;
-      this.isWorkletReady = true;
-      analyzer.on('bpm', (data: { bpm: Array<{ tempo: number }> }) => {
-        if (data?.bpm?.length > 0 && data.bpm[0]?.tempo) {
-          this.bpmCallbacks.forEach(cb => cb(data.bpm[0].tempo));
-        }
-      });
-    } catch {
-      console.warn('BPM analyzer unavailable');
-    }
-  }
-
   private startLoop(): void {
     const loop = () => {
       if (!this.isPlaying || !this.analyser || !this.context) return;
@@ -339,9 +296,6 @@ export class AudioEngine {
 
   destroy(): void {
     this.stopLoop();
-    this.bpmAnalyzer?.dispose();
-    this.bpmAnalyzer = null;
-    this.isWorkletReady = false;
     this.source?.stop();
     this.source?.disconnect();
     this.mediaSource?.disconnect();

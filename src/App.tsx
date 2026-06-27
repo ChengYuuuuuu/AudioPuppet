@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { CanvasPreview, RightPanel } from './components/Panel';
+import { CanvasPreview, RightPanel, DebugPanel } from './components/Panel';
 import { AudioEngine, mapEnergyToMouth, resetMouthMapper, createBounceState, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
@@ -40,11 +40,19 @@ export default function App() {
   const [songInfo, setSongInfo] = useState<{ title: string; artist: string; coverUrl: string } | null>(null);
   const [mouthShape, setMouthShape] = useState<MouthShape>('closed');
   const [bounceOffset, setBounceOffset] = useState(0);
-  const [currentBPM, setCurrentBPM] = useState<number | null>(null);
+  const [beatTimes, setBeatTimes] = useState<number[]>(() => {
+    const beats: number[] = [];
+    for (let t = 0; t < 200; t += 60 / 128) beats.push(parseFloat(t.toFixed(3)));
+    return beats;
+  });
+  const [currentBPM, setCurrentBPM] = useState<number | null>(128);
+  const [energyHistory, setEnergyHistory] = useState<number[]>([]);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [showDebug, setShowDebug] = useState(true);
 
   const audioEngineRef = useRef<AudioEngine | null>(null);
   const bounceStateRef = useRef(createBounceState());
+  const nextBeatIndexRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [baseImageLoaded, setBaseImageLoaded] = useState<HTMLImageElement | null>(null);
@@ -77,10 +85,6 @@ export default function App() {
       setPlaybackState((prev) => ({ ...prev, isPlaying: playing }));
     });
 
-    engine.onBPMDetected((bpm) => {
-      setCurrentBPM(bpm);
-    });
-
     engine.onFrameUpdate((audioData, currentTime) => {
       setPlaybackState((prev) => ({
         ...prev,
@@ -89,16 +93,25 @@ export default function App() {
         duration: engine.getDuration(),
       }));
 
+      setEnergyHistory(prev => {
+        if (prev.length > 300) return [...prev.slice(-299), audioData.energy];
+        return [...prev, audioData.energy];
+      });
+
       const newMouth = mapEnergyToMouth(audioData.energy, config.sensitivity, performance.now());
       setMouthShape(newMouth);
 
-      const bpm = currentBPM;
-      if (bpm) {
-        const beatPos = (currentTime * bpm) / 60;
-        const trigger = Math.abs(beatPos - Math.round(beatPos)) < 0.03;
-        bounceStateRef.current = updateBounce(bounceStateRef.current, trigger, config.bounceIntensity);
-        setBounceOffset(bounceStateRef.current.position);
+      let trigger = false;
+      const beats = beatTimes;
+      if (beats.length > 0) {
+        const idx = nextBeatIndexRef.current;
+        if (idx < beats.length && currentTime >= beats[idx] - 0.05) {
+          trigger = true;
+          nextBeatIndexRef.current = idx + 1;
+        }
       }
+      bounceStateRef.current = updateBounce(bounceStateRef.current, trigger, config.bounceIntensity);
+      setBounceOffset(bounceStateRef.current.position);
 
       const matched = getCurrentLyric(lyricsList, currentTime, config.lyricOffset);
       setPlaybackState((prev) => ({ ...prev, currentLyric: matched || null }));
@@ -109,8 +122,9 @@ export default function App() {
       setMouthShape('closed');
       bounceStateRef.current = createBounceState();
       setBounceOffset(0);
+      nextBeatIndexRef.current = 0;
     });
-  }, [config.sensitivity, config.bounceIntensity, config.lyricOffset, currentBPM]);
+  }, [config.sensitivity, config.bounceIntensity, config.lyricOffset, beatTimes]);
 
   const loadAudioToEngine = useCallback(async (engine: AudioEngine, url: string) => {
     try {
@@ -134,12 +148,19 @@ export default function App() {
       if (data.audioUrl) {
         const engine = new AudioEngine();
         audioEngineRef.current = engine;
+        nextBeatIndexRef.current = 0;
         setupAudioEngine(engine, lyricsList);
         loadAudioToEngine(engine, data.audioUrl);
       }
     },
     [setupAudioEngine, loadAudioToEngine]
   );
+
+  const handleBeatData = useCallback((bpm: number, beats: number[]) => {
+    setCurrentBPM(bpm);
+    setBeatTimes(beats);
+    nextBeatIndexRef.current = 0;
+  }, []);
 
   const handleLyricsLoad = useCallback((lrcText: string) => {
     setLyrics(parseLRC(lrcText));
@@ -175,6 +196,17 @@ export default function App() {
     resetMouthMapper();
   }, [config.sensitivity]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        setShowDebug(v => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="app-container">
       <div className="main-layout">
@@ -209,6 +241,21 @@ export default function App() {
           songInfo={songInfo}
         />
       </div>
+
+      <DebugPanel
+        show={showDebug}
+        onClose={() => setShowDebug(false)}
+        bpm={currentBPM}
+        energy={playbackState.energy}
+        currentTime={playbackState.currentTime}
+        duration={playbackState.duration}
+        beatTimes={beatTimes}
+        nextBeatIndex={nextBeatIndexRef.current}
+        mouthShape={mouthShape}
+        bounceOffset={bounceOffset}
+        energyHistory={energyHistory}
+        isPlaying={playbackState.isPlaying}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback, forwardRef, useEffect } from 'react';
+import { useState, useCallback, forwardRef, useEffect, useRef } from 'react';
 import {
   type CharacterAssets,
   type RenderMode,
@@ -355,6 +355,163 @@ export function RightPanel({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── DebugPanel ──
+
+interface DebugPanelProps {
+  show: boolean;
+  onClose: () => void;
+  bpm: number | null;
+  energy: number;
+  currentTime: number;
+  duration: number;
+  beatTimes: number[];
+  nextBeatIndex: number;
+  mouthShape: MouthShape;
+  bounceOffset: number;
+  energyHistory: number[];
+  isPlaying: boolean;
+}
+
+export function DebugPanel({
+  show, onClose, bpm, energy, currentTime, duration,
+  beatTimes, nextBeatIndex, mouthShape, bounceOffset, energyHistory, isPlaying,
+}: DebugPanelProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth * dpr;
+    const h = canvas.clientHeight * dpr;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    ctx.scale(dpr, dpr);
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, W, H);
+
+    // Time window: last 5 seconds
+    const windowSec = 5;
+    const tStart = Math.max(0, currentTime - windowSec);
+    const tEnd = currentTime + 0.5;
+
+    const toX = (t: number) => ((t - tStart) / (tEnd - tStart)) * W;
+
+    // Draw beat markers
+    for (const bt of beatTimes) {
+      if (bt < tStart || bt > tEnd) continue;
+      const x = toX(bt);
+      const isNext = bt === beatTimes[nextBeatIndex];
+      ctx.fillStyle = isNext ? 'rgba(255,217,61,0.5)' : 'rgba(255,107,107,0.25)';
+      ctx.fillRect(x - 1, 0, 2, H);
+    }
+
+    // Draw energy waveform
+    if (energyHistory.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#4A90D9';
+      ctx.lineWidth = 1.5;
+      const step = windowSec / energyHistory.length;
+      for (let i = 0; i < energyHistory.length; i++) {
+        const t = tStart + i * step;
+        const x = toX(t);
+        const norm = energyHistory[i] / 255;
+        const y = H - 4 - norm * (H - 8);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Draw progress line
+    const px = toX(currentTime);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, H);
+    ctx.stroke();
+
+    // Label on progress line
+    ctx.fillStyle = '#fff';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(formatTime(currentTime), px, H - 2);
+  }, [energyHistory, currentTime, beatTimes, nextBeatIndex]);
+
+  if (!show) return null;
+
+  const nextBeat = nextBeatIndex < beatTimes.length ? beatTimes[nextBeatIndex] : null;
+  const beatCount = beatTimes.length;
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0,
+      background: '#0d1117', color: '#c9d1d9',
+      fontFamily: 'monospace', fontSize: 11,
+      zIndex: 999, borderTop: '1px solid #30363d',
+      display: 'flex', flexDirection: 'column',
+    }}>
+      {/* Top status bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 16,
+        padding: '4px 12px', borderBottom: '1px solid #30363d',
+        background: '#161b22',
+      }}>
+        <span style={{ color: isPlaying ? '#3fb950' : '#8b949e' }}>
+          {isPlaying ? '▶ 播放中' : '⏸ 暂停'}
+        </span>
+        <span>BPM: <b style={{ color: '#ffa657' }}>{bpm?.toFixed(1) ?? '—'}</b></span>
+        <span>{formatTime(currentTime)} / {formatTime(duration)}</span>
+        <span>🔵 节拍: {beatCount}</span>
+        <span style={{ marginLeft: 'auto', cursor: 'pointer', color: '#f88' }} onClick={onClose}>✕</span>
+      </div>
+
+      {/* Waveform canvas */}
+      <div style={{ height: 80, position: 'relative' }}>
+        <canvas
+          ref={canvasRef}
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        />
+      </div>
+
+      {/* Bottom numerical values */}
+      <div style={{
+        display: 'flex', gap: 16, padding: '3px 12px',
+        borderTop: '1px solid #30363d', color: '#8b949e',
+      }}>
+        <span>当前: <b style={{ color: '#c9d1d9' }}>{formatTime(currentTime)}</b></span>
+        <span>下一拍: <b style={{ color: nextBeat !== null ? '#ffd93d' : '#8b949e' }}>
+          {nextBeat !== null ? nextBeat.toFixed(2) + 's' : '—'}
+        </b></span>
+        <span>能量: <b style={{ color: '#4A90D9' }}>{Math.round(energy)}</b></span>
+        <span>口型: <b style={{ color: '#ff6b6b' }}>{mouthShape}</b></span>
+        <span>弹跳: <b style={{ color: Math.abs(bounceOffset) > 0.5 ? '#3fb950' : '#8b949e' }}>
+          {Math.abs(bounceOffset) > 0.5 ? '触发' : '静止'}
+        </b></span>
+        <span>节拍索引: <b style={{ color: '#c9d1d9' }}>{nextBeatIndex}/{beatCount}</b></span>
+      </div>
     </div>
   );
 }
