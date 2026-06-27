@@ -15,7 +15,7 @@ export interface RenderContext {
   time: number;
   energy: number;
   mouthShape: MouthShape;
-  bounceOffset: number;
+  bounceScale: { scaleX: number; scaleY: number };
   currentLyric: LyricLine | null;
   assets: CharacterAssets;
   config: UIConfig;
@@ -56,9 +56,15 @@ function drawBackground(
 function drawCharacter(r: RenderContext): void {
   const { ctx, width, height } = r;
   ctx.save();
-  const bounceY = r.bounceOffset;
   const centerX = width / 2;
-  const centerY = height / 2 - 40 + bounceY;
+  const centerY = height / 2 - 40;
+  const { scaleX, scaleY } = r.bounceScale;
+
+  const charH = r.baseImageLoaded ? r.baseImageLoaded.height : 200;
+  const bottomY = centerY + charH / 2;
+  ctx.translate(centerX, bottomY);
+  ctx.scale(scaleX, scaleY);
+  ctx.translate(-centerX, -bottomY);
 
   if (r.config.renderMode === 'L1') {
     drawL1Character(r, centerX, centerY);
@@ -409,13 +415,108 @@ class LZWStream {
 class GIFEncoder {
   private width: number;
   private height: number;
-  private stream: LZWStream;
+  private _stream: LZWStream;
   private started = false;
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
-    this.stream = new LZWStream();
+    this._stream = new LZWStream();
+  }
+
+  start(): void {
+    this.writeHeader();
+    this.writeLSD();
+    this.started = true;
+  }
+
+  setRepeat(repeat: number): void {
+    this._stream.writeByte(0x21);
+    this._stream.writeByte(0xff);
+    this._stream.writeByte(0x0b);
+    this._stream.writeBytes([78, 69, 84, 83, 67, 65, 80, 69, 50, 46, 48]);
+    this._stream.writeByte(0x03);
+    this._stream.writeByte(repeat);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(0x00);
+  }
+
+  setDelay(ms: number): void {
+    const delay = Math.round(ms / 10);
+    this._stream.writeByte(0x21);
+    this._stream.writeByte(0xf9);
+    this._stream.writeByte(0x04);
+    this._stream.writeByte(0x04);
+    this._stream.writeByte(delay & 0xff);
+    this._stream.writeByte((delay >> 8) & 0xff);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(0x00);
+  }
+
+  addFrame(imageData: ImageData): void {
+    this._stream.writeByte(0x2c);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(this.width & 0xff);
+    this._stream.writeByte((this.width >> 8) & 0xff);
+    this._stream.writeByte(this.height & 0xff);
+    this._stream.writeByte((this.height >> 8) & 0xff);
+    this._stream.writeByte(0x00);
+
+    this.writeImageData(imageData);
+  }
+
+  finish(): void {
+    this._stream.writeByte(0x3b);
+  }
+
+  stream(): LZWStream {
+    return this._stream;
+  }
+
+  private writeHeader(): void {
+    this._stream.writeBytes([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+  }
+
+  private writeLSD(): void {
+    this._stream.writeByte(this.width & 0xff);
+    this._stream.writeByte((this.width >> 8) & 0xff);
+    this._stream.writeByte(this.height & 0xff);
+    this._stream.writeByte((this.height >> 8) & 0xff);
+    this._stream.writeByte(0xf0);
+    this._stream.writeByte(0x00);
+    this._stream.writeByte(0x00);
+  }
+
+  private writeImageData(imageData: ImageData): void {
+    const pixels: number[] = [];
+    for (let i = 0; i < imageData.data.length; i += 4) {
+      const r = imageData.data[i];
+      const g = imageData.data[i + 1];
+      const b = imageData.data[i + 2];
+      const a = imageData.data[i + 3];
+      const index = this.rgbToPaletteIndex(r, g, b, a);
+      pixels.push(index);
+    }
+
+    this._stream.writeByte(0x80);
+
+    const bpp = 7;
+    this._stream.writeByte(0x07);
+
+    const sortedPixels = this.quantize(pixels);
+    const minCodeSize = 8;
+    this._stream.writeByte(minCodeSize);
+
+    const lzwData = this.lzwEncode(sortedPixels, minCodeSize);
+    for (const byte of lzwData) {
+      this._stream.writeByte(byte);
+    }
+
+    this._stream.writeByte(0x00);
   }
 
   start(): void {

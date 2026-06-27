@@ -401,26 +401,64 @@ export function resetMouthMapper(): void {
 
 // ── Bounce Engine ──
 
-export function createBounceState(): BounceState {
-  return { position: 0, velocity: 0, isBouncing: false };
-}
-
 export function updateBounce(
   state: BounceState,
-  trigger: boolean,
+  currentTime: number,
+  beatTimes: number[],
   intensity: number
 ): BounceState {
-  let { position, velocity } = state;
+  let { phase, currentBeatIndex, triggerTime } = state;
+  const i = intensity;
 
-  if (trigger) {
-    velocity = -intensity * 15;
+  const nextBeat = currentBeatIndex + 1;
+  const hasNext = nextBeat < beatTimes.length;
+  const beatStart = hasNext ? beatTimes[nextBeat] : Infinity;
+  const beatDuration = hasNext && nextBeat + 1 < beatTimes.length
+    ? beatTimes[nextBeat + 1] - beatTimes[nextBeat]
+    : 0.5;
+
+  // Detect new beat
+  if (hasNext && currentTime >= beatStart && currentBeatIndex < nextBeat) {
+    return {
+      phase: 'compress', currentBeatIndex: nextBeat, triggerTime: currentTime,
+      scaleX: 1 + 0.20 * i,
+      scaleY: 1 - 0.20 * i,
+    };
   }
 
-  if (Math.abs(position) > 0.1 || Math.abs(velocity) > 0.1) {
-    position += velocity;
-    velocity *= 0.92;
-    return { position, velocity, isBouncing: true };
+  if (phase === 'idle') {
+    return { phase: 'idle', currentBeatIndex, triggerTime: 0, scaleX: 1, scaleY: 1 };
   }
 
-  return { position: 0, velocity: 0, isBouncing: false };
+  const t = (currentTime - triggerTime) / beatDuration;
+
+  // Keyframes: [t, scaleX, scaleY]
+  const kf: [number, number, number][] = [
+    [0.00, 1 + 0.20 * i, 1 - 0.20 * i],
+    [0.15, 1 - 0.15 * i, 1 + 0.15 * i],
+    [0.45, 1 + 0.08 * i, 1 - 0.08 * i],
+    [1.00, 1, 1],
+  ];
+
+  if (t >= 1) {
+    return { phase: 'idle', currentBeatIndex, triggerTime: 0, scaleX: 1, scaleY: 1 };
+  }
+
+  // Find segment and interpolate
+  for (let s = 0; s < kf.length - 1; s++) {
+    const [t0, x0, y0] = kf[s];
+    const [t1, x1, y1] = kf[s + 1];
+    if (t >= t0 && t < t1) {
+      const p = (t - t0) / (t1 - t0);
+      const ease = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+      return {
+        phase: s === 0 ? 'compress' : s === 1 ? 'stretch' : s === 2 ? 'reCompress' : 'settle',
+        currentBeatIndex, triggerTime,
+        scaleX: x0 + (x1 - x0) * ease,
+        scaleY: y0 + (y1 - y0) * ease,
+      };
+    }
+  }
+
+  return state;
 }

@@ -46,9 +46,11 @@ export interface UIConfig {
 }
 
 export interface BounceState {
-  position: number;
-  velocity: number;
-  isBouncing: boolean;
+  phase: 'idle' | 'compress' | 'hold' | 'release';
+  currentBeatIndex: number;
+  triggerTime: number;
+  scaleX: number;
+  scaleY: number;
 }
 
 export interface AudioAnalyserData {

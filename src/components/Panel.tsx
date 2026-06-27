@@ -21,7 +21,7 @@ interface CanvasPreviewProps {
   config: UIConfig;
   playbackState: PlaybackState;
   mouthShape: MouthShape;
-  bounceOffset: number;
+  bounceScale: { scaleX: number; scaleY: number };
   baseImageLoaded: HTMLImageElement | null;
   mouthImagesLoaded: Record<string, HTMLImageElement | null>;
 }
@@ -32,7 +32,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
     config,
     playbackState,
     mouthShape,
-    bounceOffset,
+    bounceScale,
     baseImageLoaded,
     mouthImagesLoaded,
   }: CanvasPreviewProps,
@@ -87,7 +87,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
         time: playbackState.currentTime,
         energy: playbackState.energy,
         mouthShape,
-        bounceOffset,
+        bounceScale,
         currentLyric,
         assets,
         config,
@@ -106,7 +106,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
     requestAnimationFrame(frame);
 
     return () => { running = false; };
-  }, [ref, playbackState, mouthShape, bounceOffset, assets, config, baseImageLoaded, mouthImagesLoaded]);
+  }, [ref, playbackState, mouthShape, bounceScale, assets, config, baseImageLoaded, mouthImagesLoaded]);
 
   return (
     <canvas ref={ref as React.Ref<HTMLCanvasElement>} style={{ width: '100%', height: '100%' }} />
@@ -371,14 +371,14 @@ interface DebugPanelProps {
   beatTimes: number[];
   nextBeatIndex: number;
   mouthShape: MouthShape;
-  bounceOffset: number;
+  bounceScale: { scaleX: number; scaleY: number };
   energyHistory: number[];
   isPlaying: boolean;
 }
 
 export function DebugPanel({
   show, onClose, bpm, energy, currentTime, duration,
-  beatTimes, nextBeatIndex, mouthShape, bounceOffset, energyHistory, isPlaying,
+  beatTimes, nextBeatIndex, mouthShape, bounceScale, energyHistory, isPlaying,
 }: DebugPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -462,7 +462,7 @@ export function DebugPanel({
 
   if (!show) return null;
 
-  const nextBeat = nextBeatIndex < beatTimes.length ? beatTimes[nextBeatIndex] : null;
+  const nextBeat = nextBeatIndex >= 0 && nextBeatIndex < beatTimes.length ? beatTimes[nextBeatIndex] : null;
   const beatCount = beatTimes.length;
 
   return (
@@ -507,8 +507,8 @@ export function DebugPanel({
         </b></span>
         <span>能量: <b style={{ color: '#4A90D9' }}>{Math.round(energy)}</b></span>
         <span>口型: <b style={{ color: '#ff6b6b' }}>{mouthShape}</b></span>
-        <span>弹跳: <b style={{ color: Math.abs(bounceOffset) > 0.5 ? '#3fb950' : '#8b949e' }}>
-          {Math.abs(bounceOffset) > 0.5 ? '触发' : '静止'}
+        <span>弹跳: <b style={{ color: bounceScale.scaleY < 0.98 ? '#3fb950' : '#8b949e' }}>
+          {bounceScale.scaleY < 0.98 ? '💥 压缩' : '静止'}
         </b></span>
         <span>节拍索引: <b style={{ color: '#c9d1d9' }}>{nextBeatIndex}/{beatCount}</b></span>
       </div>

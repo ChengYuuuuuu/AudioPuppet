@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { CanvasPreview, RightPanel, DebugPanel } from './components/Panel';
-import { AudioEngine, mapEnergyToMouth, resetMouthMapper, createBounceState, updateBounce } from './utils/audio';
+import { AudioEngine, mapEnergyToMouth, resetMouthMapper, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
 import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages } from './utils/storage';
@@ -39,7 +39,7 @@ export default function App() {
 
   const [songInfo, setSongInfo] = useState<{ title: string; artist: string; coverUrl: string } | null>(null);
   const [mouthShape, setMouthShape] = useState<MouthShape>('closed');
-  const [bounceOffset, setBounceOffset] = useState(0);
+  const [bounceScale, setBounceScale] = useState({ scaleX: 1, scaleY: 1 });
   const [beatTimes, setBeatTimes] = useState<number[]>(() => {
     const beats: number[] = [];
     for (let t = 0; t < 200; t += 60 / 128) beats.push(parseFloat(t.toFixed(3)));
@@ -51,8 +51,7 @@ export default function App() {
   const [showDebug, setShowDebug] = useState(true);
 
   const audioEngineRef = useRef<AudioEngine | null>(null);
-  const bounceStateRef = useRef(createBounceState());
-  const nextBeatIndexRef = useRef(0);
+  const bounceStateRef = useRef<BounceState>({ phase: 'idle', currentBeatIndex: -1, triggerTime: 0, scaleX: 1, scaleY: 1 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [baseImageLoaded, setBaseImageLoaded] = useState<HTMLImageElement | null>(null);
@@ -101,17 +100,11 @@ export default function App() {
       const newMouth = mapEnergyToMouth(audioData.energy, config.sensitivity, performance.now());
       setMouthShape(newMouth);
 
-      let trigger = false;
-      const beats = beatTimes;
-      if (beats.length > 0) {
-        const idx = nextBeatIndexRef.current;
-        if (idx < beats.length && currentTime >= beats[idx] - 0.05) {
-          trigger = true;
-          nextBeatIndexRef.current = idx + 1;
-        }
-      }
-      bounceStateRef.current = updateBounce(bounceStateRef.current, trigger, config.bounceIntensity);
-      setBounceOffset(bounceStateRef.current.position);
+      bounceStateRef.current = updateBounce(bounceStateRef.current, currentTime, beatTimes, config.bounceIntensity);
+      setBounceScale({
+        scaleX: bounceStateRef.current.scaleX,
+        scaleY: bounceStateRef.current.scaleY,
+      });
 
       const matched = getCurrentLyric(lyricsList, currentTime, config.lyricOffset);
       setPlaybackState((prev) => ({ ...prev, currentLyric: matched || null }));
@@ -120,9 +113,8 @@ export default function App() {
     engine.onPlayEnded(() => {
       setPlaybackState((prev) => ({ ...prev, isPlaying: false }));
       setMouthShape('closed');
-      bounceStateRef.current = createBounceState();
-      setBounceOffset(0);
-      nextBeatIndexRef.current = 0;
+      bounceStateRef.current = { phase: 'idle', currentBeatIndex: -1, triggerTime: 0, scaleX: 1, scaleY: 1 };
+      setBounceScale({ scaleX: 1, scaleY: 1 });
     });
   }, [config.sensitivity, config.bounceIntensity, config.lyricOffset, beatTimes]);
 
@@ -148,7 +140,6 @@ export default function App() {
       if (data.audioUrl) {
         const engine = new AudioEngine();
         audioEngineRef.current = engine;
-        nextBeatIndexRef.current = 0;
         setupAudioEngine(engine, lyricsList);
         loadAudioToEngine(engine, data.audioUrl);
       }
@@ -220,7 +211,7 @@ export default function App() {
                 config={config}
                 playbackState={playbackState}
                 mouthShape={mouthShape}
-                bounceOffset={bounceOffset}
+                bounceScale={bounceScale}
                 baseImageLoaded={baseImageLoaded}
                 mouthImagesLoaded={mouthImagesLoaded}
               />
@@ -250,9 +241,9 @@ export default function App() {
         currentTime={playbackState.currentTime}
         duration={playbackState.duration}
         beatTimes={beatTimes}
-        nextBeatIndex={nextBeatIndexRef.current}
+        nextBeatIndex={bounceStateRef.current.currentBeatIndex}
         mouthShape={mouthShape}
-        bounceOffset={bounceOffset}
+        bounceScale={bounceScale}
         energyHistory={energyHistory}
         isPlaying={playbackState.isPlaying}
       />
