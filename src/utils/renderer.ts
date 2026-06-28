@@ -40,7 +40,6 @@ export function renderFrame(r: RenderContext): void {
 
   drawBackground(ctx, width, height);
   drawCharacter(r);
-  drawLyrics(r);
   drawHUD(r);
 }
 
@@ -56,7 +55,7 @@ function drawBackground(
 function drawCharacter(r: RenderContext): void {
   const { ctx, width, height } = r;
   ctx.save();
-  const centerX = width / 2;
+  const centerX = width * 0.25;
   const centerY = height / 2 - 40;
   const { scaleX, scaleY } = r.bounceScale;
 
@@ -175,56 +174,40 @@ function drawMouthLabelWithSize(r: RenderContext, x: number, y: number, size: nu
 }
 
 function drawLyrics(r: RenderContext): void {
-  const { ctx, width } = r;
+  const { ctx, width, height } = r;
   const currentLyric = r.currentLyric;
-  const prevLyric = r.prevLyric;
 
-  const bubbleY = r.height - 120;
+  if (!currentLyric) return;
 
-  if (!currentLyric) {
-    ctx.font = '20px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('等待播放...', width / 2, bubbleY + 30);
-    return;
-  }
+  const lyricX = width * 0.65;
+  const lyricW = width * 0.30;
+  const padding = 16;
+  const radius = 12;
 
-  const alpha = prevLyric && currentLyric !== prevLyric ? r.lyricTransition : 1;
-  const slideOffset = prevLyric && currentLyric !== prevLyric
-    ? (1 - r.lyricTransition) * 10
-    : 0;
+  const parts = currentLyric.text.split(/ \/ | \/\/ |\/\//).map(s => s.trim());
+  const original = parts[0] || currentLyric.text;
+  const translation = parts.length > 1 ? parts[1] : '';
+
+  const hasTranslation = !!translation;
+  const lineH1 = 20;
+  const lineH2 = 26;
+  const bubbleH = padding * 2 + lineH1 + (hasTranslation ? lineH2 + 4 : 0);
+  const bubbleY = height / 2 - bubbleH / 2;
 
   ctx.save();
-  ctx.globalAlpha = alpha;
 
-  const text = currentLyric.text;
-  const maxWidth = width * 0.7;
-  const lineHeight = 28;
-  const padding = 20;
-  const bubbleRadius = 16;
-
-  ctx.font = '20px sans-serif';
-  const metrics = ctx.measureText(text);
-  let bubbleWidth = Math.min(metrics.width + padding * 2, maxWidth + padding);
-  bubbleWidth = Math.max(bubbleWidth, 80);
-  const bubbleHeight = lineHeight + padding;
-
-  const bubbleX = (width - bubbleWidth) / 2;
-  const bubbleYFinal = bubbleY + slideOffset;
-
+  roundRect(ctx, lyricX, bubbleY, lyricW, bubbleH, radius);
   ctx.fillStyle = COLORS.lyricBg;
+  ctx.fill();
   ctx.strokeStyle = COLORS.lyricBorder;
   ctx.lineWidth = 1;
-
-  roundRect(ctx, bubbleX, bubbleYFinal, bubbleWidth, bubbleHeight, bubbleRadius);
-  ctx.fill();
   ctx.stroke();
 
-  const triangleSize = 10;
+  const triSize = 8;
   ctx.beginPath();
-  ctx.moveTo(width / 2 - triangleSize, bubbleYFinal);
-  ctx.lineTo(width / 2, bubbleYFinal - triangleSize);
-  ctx.lineTo(width / 2 + triangleSize, bubbleYFinal);
+  ctx.moveTo(lyricX, bubbleY + bubbleH / 2 - triSize);
+  ctx.lineTo(lyricX - triSize, bubbleY + bubbleH / 2);
+  ctx.lineTo(lyricX, bubbleY + bubbleH / 2 + triSize);
   ctx.closePath();
   ctx.fillStyle = COLORS.lyricTriangle;
   ctx.fill();
@@ -232,10 +215,18 @@ function drawLyrics(r: RenderContext): void {
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.fillStyle = COLORS.lyricText;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, width / 2, bubbleYFinal + bubbleHeight / 2);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  ctx.fillStyle = '#999';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(original, lyricX + padding, bubbleY + padding);
+
+  if (hasTranslation) {
+    ctx.fillStyle = '#333';
+    ctx.font = '18px sans-serif';
+    ctx.fillText(translation, lyricX + padding, bubbleY + padding + lineH1 + 4);
+  }
 
   ctx.restore();
 }

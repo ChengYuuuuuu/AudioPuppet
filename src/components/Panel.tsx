@@ -1,4 +1,4 @@
-import { useState, useCallback, forwardRef, useEffect, useRef } from 'react';
+import { useState, useCallback, forwardRef, useEffect, useRef, useLayoutEffect } from 'react';
 import {
   type CharacterAssets,
   type RenderMode,
@@ -24,6 +24,20 @@ interface CanvasPreviewProps {
   bounceScale: { scaleX: number; scaleY: number };
   baseImageLoaded: HTMLImageElement | null;
   mouthImagesLoaded: Record<string, HTMLImageElement | null>;
+}
+
+function parseLyricText(text: string): { original: string; translation: string } {
+  const separators = [' // ', ' / ', '//', '/'];
+  for (const sep of separators) {
+    const idx = text.indexOf(sep);
+    if (idx > 0) {
+      return {
+        original: text.slice(0, idx).trim(),
+        translation: text.slice(idx + sep.length).trim().replace(/^[（(【]|[）)】]$/g, '').trim(),
+      };
+    }
+  }
+  return { original: text, translation: '' };
 }
 
 export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(function CanvasPreview(
@@ -108,8 +122,81 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
     return () => { running = false; };
   }, [ref, playbackState, mouthShape, bounceScale, assets, config, baseImageLoaded, mouthImagesLoaded]);
 
+  const itemIdRef = useRef(0);
+  const prevLyricRef = useRef<LyricLine | null>(null);
+  const [lyricItems, setLyricItems] = useState<Array<{
+    id: number;
+    original: string;
+    translation: string;
+    level: number;
+    entering: boolean;
+  }>>([]);
+
+  useEffect(() => {
+    const current = playbackState.currentLyric;
+    if (!current || current === prevLyricRef.current) return;
+    prevLyricRef.current = current;
+
+    const { original, translation } = parseLyricText(current.text);
+    const id = ++itemIdRef.current;
+
+    setLyricItems(prev => {
+      const updated = prev
+        .map(item => ({ ...item, level: item.level + 1 }))
+        .filter(item => item.level <= 4);
+      return [...updated, { id, original, translation, level: 0, entering: true }];
+    });
+
+    requestAnimationFrame(() => {
+      setLyricItems(prev =>
+        prev.map(item => item.id === id ? { ...item, entering: false } : item)
+      );
+    });
+  }, [playbackState.currentLyric]);
+
+  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [bottoms, setBottoms] = useState<Record<number, number>>({});
+
+  useLayoutEffect(() => {
+    const sorted = [...lyricItems].sort((a, b) => a.level - b.level);
+    let cum = 0;
+    const newBottoms: Record<number, number> = {};
+    for (const item of sorted) {
+      const el = itemRefs.current.get(item.id);
+      const h = el ? el.offsetHeight : 60;
+      newBottoms[item.id] = cum;
+      cum += h + 20;
+    }
+
+    let changed = Object.keys(bottoms).length !== Object.keys(newBottoms).length;
+    if (!changed) {
+      for (const [id, val] of Object.entries(newBottoms)) {
+        if (bottoms[Number(id)] !== val) { changed = true; break; }
+      }
+    }
+
+    if (changed) setBottoms(newBottoms);
+  }, [lyricItems, bottoms]);
+
   return (
-    <canvas ref={ref as React.Ref<HTMLCanvasElement>} style={{ width: '100%', height: '100%' }} />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <canvas ref={ref as React.Ref<HTMLCanvasElement>} style={{ width: '100%', height: '100%', display: 'block' }} />
+      {lyricItems.length > 0 && (
+        <div className="lyric-container">
+          {lyricItems.map(item => (
+            <div
+              key={item.id}
+              ref={el => { if (el) itemRefs.current.set(item.id, el); }}
+              className={`lyric-item level-${item.level}${item.entering ? ' entering' : ''}`}
+              style={{ bottom: bottoms[item.id] ?? 0 }}
+            >
+              <div className="lyric-original">{item.original}</div>
+              {item.translation && <div className="lyric-translated">{item.translation}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 });
 

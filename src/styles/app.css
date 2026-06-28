@@ -442,6 +442,84 @@ html, body, #root {
   border-radius: 2px;
 }
 
+/* ── Lyric HTML Overlay ── */
+.lyric-container {
+  position: absolute;
+  left: calc(25% + 200px);
+  bottom: 50%;
+  width: 36%;
+  min-width: 200px;
+  max-width: 420px;
+  pointer-events: none;
+  user-select: none;
+  z-index: 10;
+}
+
+.lyric-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 2px solid #1d1d1f;
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.10);
+  transition: bottom 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s ease-out, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.lyric-item.level-0 { opacity: 1; }
+.lyric-item.level-1 { opacity: 0.6; }
+.lyric-item.level-2 { opacity: 0.3; }
+.lyric-item.level-3 { opacity: 0; }
+.lyric-item.level-4 { opacity: 0; }
+
+.lyric-item.entering {
+  transition: none;
+  transform: translateY(30px);
+  opacity: 0;
+}
+
+.lyric-item::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-right: 11px solid #1d1d1f;
+}
+
+.lyric-item::after {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 8px solid #ffffff;
+}
+
+.lyric-original {
+  color: #666;
+  font-size: 18px;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  font-weight: 400;
+}
+
+.lyric-translated {
+  color: #1d1d1f;
+  font-size: 22px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .right-panel {
