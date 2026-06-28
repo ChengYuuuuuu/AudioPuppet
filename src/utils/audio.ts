@@ -421,8 +421,8 @@ export function updateBounce(
   if (hasNext && currentTime >= beatStart && currentBeatIndex < nextBeat) {
     return {
       phase: 'compress', currentBeatIndex: nextBeat, triggerTime: currentTime,
-      scaleX: 1 + 0.20 * i,
-      scaleY: 1 - 0.20 * i,
+      scaleX: 1,
+      scaleY: 1,
     };
   }
 
@@ -434,9 +434,9 @@ export function updateBounce(
 
   // Keyframes: [t, scaleX, scaleY]
   const kf: [number, number, number][] = [
-    [0.00, 1 + 0.20 * i, 1 - 0.20 * i],
-    [0.15, 1 - 0.15 * i, 1 + 0.15 * i],
-    [0.45, 1 + 0.08 * i, 1 - 0.08 * i],
+    [0.00, 1, 1],
+    [0.10, 1 + 0.10 * i, 1 - 0.10 * i],
+    [0.55, 1 - 0.20 * i, 1 + 0.30 * i],
     [1.00, 1, 1],
   ];
 
