@@ -194,6 +194,7 @@ export class AudioEngine {
     if (this.useElement && this.audioElement) {
       this.pauseOffset = target;
       this.audioElement.currentTime = target;
+      this.onFrame?.({ energy: 0, frequencyData: new Uint8Array(0) }, target);
       if (wasPlaying) {
         this.audioElement.play().catch(() => {});
       }

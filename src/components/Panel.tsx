@@ -213,6 +213,7 @@ interface RightPanelProps {
   onModeChange: (mode: RenderMode) => void;
   onSongLoad: (data: { title: string; artist: string; coverUrl: string; audioUrl: string; lyrics: string }) => void;
   onLyricsLoad: (lrcText: string) => void;
+  onSeek: (time: number) => void;
   songInfo: { title: string; artist: string; coverUrl: string } | null;
 }
 
@@ -228,6 +229,7 @@ export function RightPanel({
   onModeChange,
   onSongLoad,
   onLyricsLoad,
+  onSeek,
   songInfo,
 }: RightPanelProps) {
   const [url, setUrl] = useState('');
@@ -259,15 +261,18 @@ export function RightPanel({
   }, [audioEngine, playbackState.isPlaying]);
 
   const handleSeekDrag = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setDragTime(parseFloat(e.target.value));
-  }, []);
+    const value = parseFloat(e.target.value);
+    audioEngine?.seek(value);
+    setDragTime(value);
+  }, [audioEngine]);
 
   const handleSeekEnd = useCallback(() => {
     if (dragTime !== null) {
+      onSeek(dragTime);
       audioEngine?.seek(dragTime);
       setDragTime(null);
     }
-  }, [audioEngine, dragTime]);
+  }, [audioEngine, dragTime, onSeek]);
 
   const handleBaseImageUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

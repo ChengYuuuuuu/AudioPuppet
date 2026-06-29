@@ -173,6 +173,10 @@ export default function App() {
     setAssets(newAssets);
   }, []);
 
+  const handleSeek = useCallback((time: number) => {
+    setPlaybackState((prev) => ({ ...prev, currentTime: time }));
+  }, []);
+
   useEffect(() => {
     return () => {
       audioEngineRef.current?.destroy();
@@ -229,6 +233,7 @@ export default function App() {
           onModeChange={handleModeChange}
           onSongLoad={handleSongLoad}
           onLyricsLoad={handleLyricsLoad}
+          onSeek={handleSeek}
           songInfo={songInfo}
         />
       </div>
