@@ -175,7 +175,19 @@ export default function App() {
 
   const handleSeek = useCallback((time: number) => {
     setPlaybackState((prev) => ({ ...prev, currentTime: time }));
-  }, []);
+    let newIndex = -1;
+    for (let i = 0; i < beatTimes.length; i++) {
+      if (beatTimes[i] <= time) newIndex = i;
+      else break;
+    }
+    bounceStateRef.current = {
+      phase: 'idle',
+      currentBeatIndex: newIndex,
+      triggerTime: 0,
+      scaleX: 1,
+      scaleY: 1,
+    };
+  }, [beatTimes]);
 
   useEffect(() => {
     return () => {
