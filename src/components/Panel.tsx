@@ -7,8 +7,10 @@ import {
   type PlaybackState,
   type LyricLine,
   type MouthShape,
+  type MouthPoint,
 } from '../types/index';
 import { parseNeteaseSong } from '../utils/api';
+import { analyzeAudioBlob, wordsToMouthPoints } from '../utils/whisper';
 import { saveBaseImage, saveMouthImages } from '../utils/storage';
 import { renderFrame, type RenderContext } from '../utils/renderer';
 import { AudioEngine } from '../utils/audio';
@@ -214,7 +216,10 @@ interface RightPanelProps {
   onSongLoad: (data: { title: string; artist: string; coverUrl: string; audioUrl: string; lyrics: string }) => void;
   onLyricsLoad: (lrcText: string) => void;
   onSeek: (time: number) => void;
+  onWhisperResult: (mouthPoints: MouthPoint[]) => void;
+  onFileAnalyze: (result: { bpm: number | null; beats: number[]; mouthPoints: MouthPoint[] }) => void;
   songInfo: { title: string; artist: string; coverUrl: string } | null;
+  analyzing?: boolean;
 }
 
 const MOUTH_KEYS: (keyof MouthImages)[] = ['A', 'E', 'I', 'O', 'U'];
@@ -230,7 +235,10 @@ export function RightPanel({
   onSongLoad,
   onLyricsLoad,
   onSeek,
+  onWhisperResult,
+  onFileAnalyze,
   songInfo,
+  analyzing,
 }: RightPanelProps) {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -305,6 +313,26 @@ export function RightPanel({
     [assets, onAssetsChange]
   );
 
+  const [fileAnalyzing, setFileAnalyzing] = useState(false);
+
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileAnalyzing(true);
+    console.log('📁 上传文件:', file.name);
+    const result = await analyzeAudioBlob(file);
+    console.log('🔍 文件分析结果:', result);
+    if (result.success && result.words) {
+      const mouthPoints = wordsToMouthPoints(result.words);
+      onWhisperResult(mouthPoints);
+      onFileAnalyze({ bpm: result.bpm ?? null, beats: result.beats ?? [], mouthPoints });
+    } else {
+      console.error('❌ 文件分析失败:', result);
+    }
+    setFileAnalyzing(false);
+    e.target.value = '';
+  }, [onWhisperResult, onFileAnalyze]);
+
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
@@ -323,8 +351,8 @@ export function RightPanel({
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <button onClick={handleParse} disabled={loading || !url.trim()}>
-          {loading ? <span className="spinner" /> : '解析'}
+        <button onClick={handleParse} disabled={loading || analyzing || !url.trim()}>
+          {loading ? <span className="spinner" /> : analyzing ? <span className="spinner" /> : '解析'}
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}
@@ -447,6 +475,17 @@ export function RightPanel({
           </div>
         </div>
       )}
+
+      {/* 9. File Upload */}
+      <div className="asset-section">
+        <div className="label">上传音频测试</div>
+        <div className="asset-btns">
+          <label className={`asset-btn ${fileAnalyzing ? '' : ''}`}>
+            {fileAnalyzing ? '🎵 分析中...' : '📁 选择音频文件'}
+            <input type="file" accept="audio/*" onChange={handleFileUpload} disabled={fileAnalyzing} />
+          </label>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { CanvasPreview, RightPanel, DebugPanel } from './components/Panel';
-import { AudioEngine, mapEnergyToMouth, resetMouthMapper, updateBounce } from './utils/audio';
+import { AudioEngine, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
-import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages } from './utils/storage';
+import { saveUIConfig, loadUIConfig } from './utils/storage';
+import { analyzeAudioUrl, wordsToMouthPoints } from './utils/whisper';
 import {
   type LyricLine,
   type CharacterAssets,
@@ -12,6 +13,7 @@ import {
   type MouthShape,
   type MouthImages,
   type RenderMode,
+  type MouthPoint,
 } from './types/index';
 import './styles/app.css';
 
@@ -24,8 +26,8 @@ export default function App() {
   });
 
   const [assets, setAssets] = useState<CharacterAssets>(() => ({
-    baseImage: loadBaseImage(),
-    mouthImages: loadMouthImages() || { ...defaultMouthImages },
+    baseImage: null,
+    mouthImages: { ...defaultMouthImages },
   }));
 
   const [playbackState, setPlaybackState] = useState<PlaybackState>({
@@ -40,19 +42,21 @@ export default function App() {
   const [songInfo, setSongInfo] = useState<{ title: string; artist: string; coverUrl: string } | null>(null);
   const [mouthShape, setMouthShape] = useState<MouthShape>('closed');
   const [bounceScale, setBounceScale] = useState({ scaleX: 1, scaleY: 1 });
-  const [beatTimes, setBeatTimes] = useState<number[]>(() => {
-    const beats: number[] = [];
-    for (let t = 0; t < 200; t += 60 / 128) beats.push(parseFloat(t.toFixed(3)));
-    return beats;
-  });
-  const [currentBPM, setCurrentBPM] = useState<number | null>(128);
+  const [beatTimes, setBeatTimes] = useState<number[]>([]);
+  const [currentBPM, setCurrentBPM] = useState<number | null>(null);
   const [energyHistory, setEnergyHistory] = useState<number[]>([]);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [showDebug, setShowDebug] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const audioEngineRef = useRef<AudioEngine | null>(null);
   const bounceStateRef = useRef<BounceState>({ phase: 'idle', currentBeatIndex: -1, triggerTime: 0, scaleX: 1, scaleY: 1 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const whisperTimelineRef = useRef<MouthPoint[]>([]);
+  const beatTimesRef = useRef<number[]>([]);
+  const configRef = useRef(config);
+  configRef.current = config;
+  beatTimesRef.current = beatTimes;
 
   const [baseImageLoaded, setBaseImageLoaded] = useState<HTMLImageElement | null>(null);
   const [mouthImagesLoaded, setMouthImagesLoaded] = useState<Record<string, HTMLImageElement | null>>({});
@@ -85,28 +89,36 @@ export default function App() {
     });
 
     engine.onFrameUpdate((audioData, currentTime) => {
+      const energy = audioData.energy;
       setPlaybackState((prev) => ({
         ...prev,
         currentTime,
-        energy: audioData.energy,
+        energy,
         duration: engine.getDuration(),
       }));
 
       setEnergyHistory(prev => {
-        if (prev.length > 300) return [...prev.slice(-299), audioData.energy];
-        return [...prev, audioData.energy];
+        if (prev.length > 300) return [...prev.slice(-299), energy];
+        return [...prev, energy];
       });
 
-      const newMouth = mapEnergyToMouth(audioData.energy, config.sensitivity, performance.now());
-      setMouthShape(newMouth);
+      let mouth: MouthShape | null = null;
+      for (const p of whisperTimelineRef.current) {
+        if (p.start <= currentTime && currentTime < p.end) {
+          mouth = p.mouth;
+          break;
+        }
+      }
+      setMouthShape(mouth ?? 'closed');
 
-      bounceStateRef.current = updateBounce(bounceStateRef.current, currentTime, beatTimes, config.bounceIntensity);
+      const c = configRef.current;
+      bounceStateRef.current = updateBounce(bounceStateRef.current, currentTime, beatTimesRef.current, c.bounceIntensity);
       setBounceScale({
         scaleX: bounceStateRef.current.scaleX,
         scaleY: bounceStateRef.current.scaleY,
       });
 
-      const matched = getCurrentLyric(lyricsList, currentTime, config.lyricOffset);
+      const matched = getCurrentLyric(lyricsList, currentTime, c.lyricOffset);
       setPlaybackState((prev) => ({ ...prev, currentLyric: matched || null }));
     });
 
@@ -116,7 +128,7 @@ export default function App() {
       bounceStateRef.current = { phase: 'idle', currentBeatIndex: -1, triggerTime: 0, scaleX: 1, scaleY: 1 };
       setBounceScale({ scaleX: 1, scaleY: 1 });
     });
-  }, [config.sensitivity, config.bounceIntensity, config.lyricOffset, beatTimes]);
+  }, []);
 
   const loadAudioToEngine = useCallback(async (engine: AudioEngine, url: string) => {
     try {
@@ -142,15 +154,40 @@ export default function App() {
         audioEngineRef.current = engine;
         setupAudioEngine(engine, lyricsList);
         loadAudioToEngine(engine, data.audioUrl);
+
+        setAnalyzing(true);
+        analyzeAudioUrl(data.audioUrl, 'https://music.163.com')
+          .then((result) => {
+            console.log('🔍 Analyze 结果:', result);
+            if (result.success) {
+              if (result.words) {
+                const points = wordsToMouthPoints(result.words);
+                console.log('🔍 口型点数:', points.length);
+                whisperTimelineRef.current = points;
+              }
+              if (result.bpm && result.beats) {
+                setCurrentBPM(result.bpm);
+                setBeatTimes(result.beats);
+              }
+            }
+          })
+          .catch((err) => console.error('❌ 分析请求失败:', err))
+          .finally(() => setAnalyzing(false));
       }
     },
     [setupAudioEngine, loadAudioToEngine]
   );
 
-  const handleBeatData = useCallback((bpm: number, beats: number[]) => {
-    setCurrentBPM(bpm);
-    setBeatTimes(beats);
-    nextBeatIndexRef.current = 0;
+  const handleWhisperResult = useCallback((mouthPoints: MouthPoint[]) => {
+    whisperTimelineRef.current = mouthPoints;
+  }, []);
+
+  const handleFileAnalyze = useCallback((result: { bpm: number | null; beats: number[]; mouthPoints: MouthPoint[] }) => {
+    whisperTimelineRef.current = result.mouthPoints;
+    if (result.bpm && result.beats.length > 0) {
+      setCurrentBPM(result.bpm);
+      setBeatTimes(result.beats);
+    }
   }, []);
 
   const handleLyricsLoad = useCallback((lrcText: string) => {
@@ -200,10 +237,6 @@ export default function App() {
   }, [playbackState.volume]);
 
   useEffect(() => {
-    resetMouthMapper();
-  }, [config.sensitivity]);
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault();
@@ -247,6 +280,9 @@ export default function App() {
           onLyricsLoad={handleLyricsLoad}
           onSeek={handleSeek}
           songInfo={songInfo}
+          onWhisperResult={handleWhisperResult}
+          onFileAnalyze={handleFileAnalyze}
+          analyzing={analyzing}
         />
       </div>
 

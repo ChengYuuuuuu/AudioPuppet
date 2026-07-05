@@ -30,8 +30,12 @@ export async function parseNeteaseSong(url: string): Promise<NCMResponse> {
 
     let audioUrl = meta.url;
     if (!audioUrl.endsWith('.mp3')) {
-      const urlRes = await fetch(audioUrl);
-      audioUrl = urlRes.url;
+      try {
+        const urlRes = await fetch(audioUrl);
+        audioUrl = urlRes.url;
+      } catch {
+        // redirect 失败时保留原 audioUrl（Meting API 代理地址），不中断流程
+      }
     }
 
     const lrcRes = await fetch(meta.lrc);
