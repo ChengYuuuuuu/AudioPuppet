@@ -10,23 +10,11 @@ import {
   type MouthPoint,
 } from '../types/index';
 import { parseNeteaseSong } from '../utils/api';
-import { analyzeAudioBlob, wordsToMouthPoints } from '../utils/whisper';
+import { analyzeSofaBlob } from '../utils/sofa';
+import { phonemesToMouthPoints } from '../utils/mouthMapper';
 import { saveBaseImage, saveMouthImages } from '../utils/storage';
 import { renderFrame, type RenderContext } from '../utils/renderer';
 import { AudioEngine } from '../utils/audio';
-
-// ── CanvasPreview ──
-
-interface CanvasPreviewProps {
-  audioEngine: unknown;
-  assets: CharacterAssets;
-  config: UIConfig;
-  playbackState: PlaybackState;
-  mouthShape: MouthShape;
-  bounceScale: { scaleX: number; scaleY: number };
-  baseImageLoaded: HTMLImageElement | null;
-  mouthImagesLoaded: Record<string, HTMLImageElement | null>;
-}
 
 function parseLyricText(text: string): { original: string; translation: string } {
   const separators = [' // ', ' / ', '//', '/'];
@@ -202,8 +190,6 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
   );
 });
 
-// ── RightPanel ──
-
 interface RightPanelProps {
   audioEngine: AudioEngine | null;
   playbackState: PlaybackState;
@@ -314,24 +300,25 @@ export function RightPanel({
   );
 
   const [fileAnalyzing, setFileAnalyzing] = useState(false);
+  const [fileLyrics, setFileLyrics] = useState('');
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileAnalyzing(true);
-    console.log('📁 上传文件:', file.name);
-    const result = await analyzeAudioBlob(file);
-    console.log('🔍 文件分析结果:', result);
-    if (result.success && result.words) {
-      const mouthPoints = wordsToMouthPoints(result.words);
+    console.log('上传文件:', file.name);
+    const result = await analyzeSofaBlob(file, fileLyrics);
+    console.log('SOFA 文件分析结果:', result);
+    if (result.success && result.phonemes) {
+      const mouthPoints = phonemesToMouthPoints(result.phonemes);
       onWhisperResult(mouthPoints);
       onFileAnalyze({ bpm: result.bpm ?? null, beats: result.beats ?? [], mouthPoints });
     } else {
-      console.error('❌ 文件分析失败:', result);
+      console.error('文件分析失败:', result);
     }
     setFileAnalyzing(false);
     e.target.value = '';
-  }, [onWhisperResult, onFileAnalyze]);
+  }, [fileLyrics, onWhisperResult, onFileAnalyze]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -343,7 +330,6 @@ export function RightPanel({
     <div className="right-panel">
       <div className="right-panel-logo">对口型</div>
 
-      {/* 1. Song Import */}
       <div className="song-import">
         <input
           type="url"
@@ -357,7 +343,6 @@ export function RightPanel({
       </div>
       {error && <div className="error-text">{error}</div>}
 
-      {/* 2. Cover */}
       <div className="cover-box">
         {songInfo?.coverUrl ? (
           <img src={songInfo.coverUrl} alt="" />
@@ -373,13 +358,11 @@ export function RightPanel({
         )}
       </div>
 
-      {/* 3. Song Info */}
       <div className="song-info-right">
         <div className="title font-title">{songInfo?.title || '—'}</div>
         <div className="artist">{songInfo?.artist || '—'}</div>
       </div>
 
-      {/* 4. Progress + Time */}
       <div className="progress-row">
         <span className="time">{formatTime(dragTime !== null ? dragTime : playbackState.currentTime)}</span>
         <input
@@ -396,7 +379,6 @@ export function RightPanel({
         <span className="time">{formatTime(playbackState.duration)}</span>
       </div>
 
-      {/* 5. Play Button */}
       <div className="play-btn-wrap">
         <button className="play-btn-big" onClick={handlePlayPause}>
           {playbackState.isPlaying ? (
@@ -411,7 +393,6 @@ export function RightPanel({
         </button>
       </div>
 
-      {/* 6. Mode Dots */}
       <div>
         <div className="mode-dots">
           {(['L1', 'L2', 'L3'] as RenderMode[]).map((mode) => (
@@ -426,7 +407,6 @@ export function RightPanel({
         <div className="mode-label">{config.renderMode}</div>
       </div>
 
-      {/* 7. Sliders */}
       <div className="sliders-compact">
         <div className="slider-row">
           <label>灵敏度</label>
@@ -457,7 +437,6 @@ export function RightPanel({
         </div>
       </div>
 
-      {/* 8. Asset Uploads */}
       {config.renderMode !== 'L1' && (
         <div className="asset-section">
           <div className="label">角色素材</div>
@@ -476,12 +455,18 @@ export function RightPanel({
         </div>
       )}
 
-      {/* 9. File Upload */}
       <div className="asset-section">
         <div className="label">上传音频测试</div>
+        <textarea
+          className="file-lyrics-input"
+          placeholder="粘贴歌词文本（SOFA 需要歌词进行对齐）..."
+          value={fileLyrics}
+          onChange={(e) => setFileLyrics(e.target.value)}
+          rows={3}
+        />
         <div className="asset-btns">
           <label className={`asset-btn ${fileAnalyzing ? '' : ''}`}>
-            {fileAnalyzing ? '🎵 分析中...' : '📁 选择音频文件'}
+            {fileAnalyzing ? '分析中...' : '选择音频文件'}
             <input type="file" accept="audio/*" onChange={handleFileUpload} disabled={fileAnalyzing} />
           </label>
         </div>
@@ -489,8 +474,6 @@ export function RightPanel({
     </div>
   );
 }
-
-// ── DebugPanel ──
 
 interface DebugPanelProps {
   show: boolean;
@@ -538,18 +521,15 @@ export function DebugPanel({
 
     ctx.clearRect(0, 0, W, H);
 
-    // Background
     ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, W, H);
 
-    // Time window: last 5 seconds
     const windowSec = 5;
     const tStart = Math.max(0, currentTime - windowSec);
     const tEnd = currentTime + 0.5;
 
     const toX = (t: number) => ((t - tStart) / (tEnd - tStart)) * W;
 
-    // Draw beat markers
     for (const bt of beatTimes) {
       if (bt < tStart || bt > tEnd) continue;
       const x = toX(bt);
@@ -558,7 +538,6 @@ export function DebugPanel({
       ctx.fillRect(x - 1, 0, 2, H);
     }
 
-    // Draw energy waveform
     if (energyHistory.length > 1) {
       ctx.beginPath();
       ctx.strokeStyle = '#4A90D9';
@@ -575,7 +554,6 @@ export function DebugPanel({
       ctx.stroke();
     }
 
-    // Draw progress line
     const px = toX(currentTime);
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
@@ -584,7 +562,6 @@ export function DebugPanel({
     ctx.lineTo(px, H);
     ctx.stroke();
 
-    // Label on progress line
     ctx.fillStyle = '#fff';
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
@@ -604,7 +581,6 @@ export function DebugPanel({
       zIndex: 999, borderTop: '1px solid #30363d',
       display: 'flex', flexDirection: 'column',
     }}>
-      {/* Top status bar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 16,
         padding: '4px 12px', borderBottom: '1px solid #30363d',
@@ -615,11 +591,10 @@ export function DebugPanel({
         </span>
         <span>BPM: <b style={{ color: '#ffa657' }}>{bpm?.toFixed(1) ?? '—'}</b></span>
         <span>{formatTime(currentTime)} / {formatTime(duration)}</span>
-        <span>🔵 节拍: {beatCount}</span>
+        <span>节拍: {beatCount}</span>
         <span style={{ marginLeft: 'auto', cursor: 'pointer', color: '#f88' }} onClick={onClose}>✕</span>
       </div>
 
-      {/* Waveform canvas */}
       <div style={{ height: 80, position: 'relative' }}>
         <canvas
           ref={canvasRef}
@@ -627,7 +602,6 @@ export function DebugPanel({
         />
       </div>
 
-      {/* Bottom numerical values */}
       <div style={{
         display: 'flex', gap: 16, padding: '3px 12px',
         borderTop: '1px solid #30363d', color: '#8b949e',
@@ -639,7 +613,7 @@ export function DebugPanel({
         <span>能量: <b style={{ color: '#4A90D9' }}>{Math.round(energy)}</b></span>
         <span>口型: <b style={{ color: '#ff6b6b' }}>{mouthShape}</b></span>
         <span>弹跳: <b style={{ color: bounceScale.scaleY < 0.98 ? '#3fb950' : '#8b949e' }}>
-          {bounceScale.scaleY < 0.98 ? '💥 压缩' : '静止'}
+          {bounceScale.scaleY < 0.98 ? '压缩' : '静止'}
         </b></span>
         <span>节拍索引: <b style={{ color: '#c9d1d9' }}>{nextBeatIndex}/{beatCount}</b></span>
       </div>

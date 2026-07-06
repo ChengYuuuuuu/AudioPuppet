@@ -1,8 +1,7 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
-from faster_whisper import WhisperModel
 import tempfile
 import os
 import logging
@@ -11,6 +10,8 @@ import librosa
 import traceback
 import numpy as np
 import requests
+
+from sofa_aligner import SofaAligner
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -31,17 +32,14 @@ app.add_middleware(
 class AnalyzeURLRequest(BaseModel):
     url: str
     referer: str | None = None
+    lyrics_text: str = ""
 
-model = WhisperModel("small", device="cpu", compute_type="int8")
 
+script_dir = os.path.dirname(__file__)
+ckpt_path = os.path.join(script_dir, "sofa_source", "ckpt", "v1.0.0_mandarin_singing.ckpt")
+dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "opencpop-extension.txt")
 
-def transcribe_audio(file_path: str) -> list:
-    segments, _ = model.transcribe(file_path, word_timestamps=True)
-    words = []
-    for seg in segments:
-        for word in seg.words:
-            words.append({"text": word.word, "start": word.start, "end": word.end})
-    return words
+aligner = SofaAligner(ckpt_path, dict_path)
 
 
 def detect_beats(audio: np.ndarray, sr: float) -> tuple:
@@ -81,7 +79,6 @@ def detect_beats(audio: np.ndarray, sr: float) -> tuple:
         except Exception:
             log.exception(f"  beat_track [{i}] 异常")
 
-    # Fallback: compute onset envelope manually
     try:
         log.debug("  beat_track [fallback] 调用 onset_strength...")
         onset_env = librosa.onset.onset_strength(y=audio, sr=sr, aggregate=np.median)
@@ -113,6 +110,33 @@ def detect_beats(audio: np.ndarray, sr: float) -> tuple:
     return None, []
 
 
+def analyze_audio_align(audio_path: str, lyrics_text: str) -> dict:
+    sofa_result = aligner.align(audio_path, lyrics_text)
+
+    bpm = None
+    beats = []
+
+    try:
+        y, sr = librosa.load(audio_path, sr=None, mono=True)
+        duration = len(y) / sr
+        max_amp = float(np.max(np.abs(y)))
+        rms = float(np.sqrt(np.mean(y**2)))
+        log.info(f"音频: sr={sr}, 时长={duration:.2f}s, 样本数={len(y)}, max_amp={max_amp:.4f}, rms={rms:.4f}")
+        bpm, beats = detect_beats(y, sr)
+        log.info(f"结果: bpm={bpm}, 节拍数={len(beats)}")
+    except Exception:
+        log.exception("Librosa 分析失败")
+
+    return {
+        "success": sofa_result["success"],
+        "phonemes": sofa_result["phonemes"],
+        "words": sofa_result["words"],
+        "confidence": sofa_result["confidence"],
+        "bpm": bpm,
+        "beats": beats,
+    }
+
+
 @app.options("/analyze-url")
 async def analyze_url_options():
     return Response(status_code=200)
@@ -140,41 +164,21 @@ async def analyze_url(req: AnalyzeURLRequest):
         log.error(f"音频下载失败: {e}")
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
-        return {"success": False, "error": f"音频下载失败: {e}", "words": [], "bpm": None, "beats": []}
+        return {"success": False, "error": f"音频下载失败: {e}", "phonemes": [], "bpm": None, "beats": []}
 
-    try:
-        words = transcribe_audio(tmp_path)
-    except Exception as e:
-        log.error(f"转写失败: {e}")
-        words = []
-
-    bpm = None
-    beats = []
-
-    try:
-        y, sr = librosa.load(tmp_path, sr=None, mono=True)
-        duration = len(y) / sr
-        max_amp = float(np.max(np.abs(y)))
-        rms = float(np.sqrt(np.mean(y**2)))
-        log.info(f"音频: sr={sr}, 时长={duration:.2f}s, 样本数={len(y)}, max_amp={max_amp:.4f}, rms={rms:.4f}")
-        bpm, beats = detect_beats(y, sr)
-        log.info(f"结果: bpm={bpm}, 节拍数={len(beats)}")
-    except Exception as e:
-        log.exception(f"Librosa 分析失败: {e}")
+    result = analyze_audio_align(tmp_path, req.lyrics_text)
 
     if tmp_path and os.path.exists(tmp_path):
         os.unlink(tmp_path)
 
-    return {
-        "success": True,
-        "words": words,
-        "bpm": bpm,
-        "beats": beats,
-    }
+    return result
 
 
 @app.post("/analyze")
-async def analyze(audio: UploadFile = File(...)):
+async def analyze(
+    audio: UploadFile = File(...),
+    lyrics_text: str = Form(""),
+):
     suffix = os.path.splitext(audio.filename or "audio.mp3")[1] or ".mp3"
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -185,29 +189,10 @@ async def analyze(audio: UploadFile = File(...)):
     file_size = os.path.getsize(tmp_path)
     log.info(f"上传文件: {audio.filename}, 大小={file_size} bytes, suffix={suffix}")
 
-    words = transcribe_audio(tmp_path)
-
-    bpm = None
-    beats = []
-
-    try:
-        y, sr = librosa.load(tmp_path, sr=None, mono=True)
-        duration = len(y) / sr
-        max_amp = float(np.max(np.abs(y)))
-        rms = float(np.sqrt(np.mean(y**2)))
-        log.info(f"音频: sr={sr}, 时长={duration:.2f}s, 样本数={len(y)}, max_amp={max_amp:.4f}, rms={rms:.4f}")
-        bpm, beats = detect_beats(y, sr)
-        log.info(f"结果: bpm={bpm}, 节拍数={len(beats)}")
-    except Exception as e:
-        log.exception(f"Librosa 分析失败: {e}")
+    result = analyze_audio_align(tmp_path, lyrics_text)
 
     os.unlink(tmp_path)
-    return {
-        "success": True,
-        "words": words,
-        "bpm": bpm,
-        "beats": beats,
-    }
+    return result
 
 
 if __name__ == "__main__":

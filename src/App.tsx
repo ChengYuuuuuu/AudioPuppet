@@ -4,7 +4,8 @@ import { AudioEngine, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
 import { saveUIConfig, loadUIConfig } from './utils/storage';
-import { analyzeAudioUrl, wordsToMouthPoints } from './utils/whisper';
+import { analyzeSofaUrl } from './utils/sofa';
+import { phonemesToMouthPoints } from './utils/mouthMapper';
 import {
   type LyricLine,
   type CharacterAssets,
@@ -156,22 +157,20 @@ export default function App() {
         loadAudioToEngine(engine, data.audioUrl);
 
         setAnalyzing(true);
-        analyzeAudioUrl(data.audioUrl, 'https://music.163.com')
+        analyzeSofaUrl(data.audioUrl, data.lyrics, 'https://music.163.com')
           .then((result) => {
-            console.log('🔍 Analyze 结果:', result);
-            if (result.success) {
-              if (result.words) {
-                const points = wordsToMouthPoints(result.words);
-                console.log('🔍 口型点数:', points.length);
-                whisperTimelineRef.current = points;
-              }
-              if (result.bpm && result.beats) {
-                setCurrentBPM(result.bpm);
-                setBeatTimes(result.beats);
-              }
+            console.log('SOFA 分析结果:', result);
+            if (result.success && result.phonemes) {
+              const points = phonemesToMouthPoints(result.phonemes);
+              console.log('口型点数:', points.length);
+              whisperTimelineRef.current = points;
+            }
+            if (result.bpm && result.beats) {
+              setCurrentBPM(result.bpm);
+              setBeatTimes(result.beats);
             }
           })
-          .catch((err) => console.error('❌ 分析请求失败:', err))
+          .catch((err) => console.error('SOFA 分析请求失败:', err))
           .finally(() => setAnalyzing(false));
       }
     },
