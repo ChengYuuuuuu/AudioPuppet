@@ -13,12 +13,26 @@ import {
   type PlaybackState,
   type MouthShape,
   type MouthImages,
-  type RenderMode,
   type MouthPoint,
 } from './types/index';
 import './styles/app.css';
 
-const defaultMouthImages: MouthImages = { A: null, E: null, I: null, O: null, U: null };
+import tetoBase from './assets/teto-底.png';
+import tetoA from './assets/teto-a.png';
+import tetoE from './assets/teto-e.png';
+import tetoI from './assets/teto-i.png';
+import tetoO from './assets/teto-o.png';
+import tetoU from './assets/teto-u.png';
+import tetoClosed from './assets/teto-closed.png';
+
+const defaultMouthImages: MouthImages = {
+  A: tetoA, E: tetoE, I: tetoI, O: tetoO, U: tetoU, closed: tetoClosed,
+};
+
+const defaultAssets: CharacterAssets = {
+  baseImage: tetoBase,
+  mouthImages: { ...defaultMouthImages },
+};
 
 export default function App() {
   const [config, setConfig] = useState<UIConfig>(() => {
@@ -27,8 +41,8 @@ export default function App() {
   });
 
   const [assets, setAssets] = useState<CharacterAssets>(() => ({
-    baseImage: null,
-    mouthImages: { ...defaultMouthImages },
+    ...defaultAssets,
+    mouthImages: { ...defaultAssets.mouthImages },
   }));
 
   const [playbackState, setPlaybackState] = useState<PlaybackState>({
@@ -73,7 +87,7 @@ export default function App() {
   useEffect(() => {
     const loadAll = async () => {
       const loaded: Record<string, HTMLImageElement | null> = {};
-      for (const key of ['A', 'E', 'I', 'O', 'U'] as const) {
+      for (const key of ['A', 'E', 'I', 'O', 'U', 'closed'] as const) {
         const src = assets.mouthImages[key];
         if (src) {
           try { loaded[key] = await loadImage(src); } catch { loaded[key] = null; }
@@ -201,10 +215,6 @@ export default function App() {
     });
   }, []);
 
-  const handleModeChange = useCallback((mode: RenderMode) => {
-    handleConfigChange({ renderMode: mode });
-  }, [handleConfigChange]);
-
   const handleAssetsChange = useCallback((newAssets: CharacterAssets) => {
     setAssets(newAssets);
   }, []);
@@ -262,6 +272,7 @@ export default function App() {
                 bounceScale={bounceScale}
                 baseImageLoaded={baseImageLoaded}
                 mouthImagesLoaded={mouthImagesLoaded}
+                onMouthOffsetChange={(offset) => handleConfigChange({ mouthOffset: offset })}
               />
             </div>
           </div>
@@ -274,7 +285,6 @@ export default function App() {
           canvasRef={canvasRef}
           assets={assets}
           onAssetsChange={handleAssetsChange}
-          onModeChange={handleModeChange}
           onSongLoad={handleSongLoad}
           onLyricsLoad={handleLyricsLoad}
           onSeek={handleSeek}

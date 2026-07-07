@@ -270,43 +270,6 @@ html, body, #root {
   transform: scale(0.95);
 }
 
-/* Mode dots */
-.mode-dots {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-}
-
-.mode-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 1.5px solid #c7c7cc;
-  background: transparent;
-  cursor: pointer;
-  transition: all 0.2s;
-  padding: 0;
-}
-
-.mode-dot.active {
-  background: #1d1d1f;
-  border-color: #1d1d1f;
-}
-
-.mode-dot:hover:not(.active) {
-  border-color: #8e8e93;
-}
-
-.mode-label {
-  font-size: 8px;
-  color: #86868b;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  font-family: 'Inter', sans-serif;
-  margin-top: 2px;
-}
-
 /* Sliders (black, thick) */
 .sliders-compact {
   display: flex;

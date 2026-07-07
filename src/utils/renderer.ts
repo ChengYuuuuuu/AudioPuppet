@@ -1,5 +1,4 @@
 import {
-  type RenderMode,
   type MouthShape,
   type CharacterAssets,
   type UIConfig,
@@ -25,9 +24,7 @@ export interface RenderContext {
   lyricTransition: number;
 }
 
-const EMOJI = '🐱';
 const COLORS = {
-  mouthLabel: '#4A90D9',
   lyricBg: 'rgba(255,255,255,0.95)',
   lyricText: '#333',
   lyricBorder: '#ddd',
@@ -65,53 +62,9 @@ function drawCharacter(r: RenderContext): void {
   ctx.scale(scaleX, scaleY);
   ctx.translate(-centerX, -bottomY);
 
-  if (r.config.renderMode === 'L1') {
-    drawL1Character(r, centerX, centerY);
-  } else if (r.config.renderMode === 'L2') {
-    drawL2Character(r, centerX, centerY);
-  } else if (r.config.renderMode === 'L3') {
-    drawL3Character(r, centerX, centerY);
-  }
+  drawL3Character(r, centerX, centerY);
 
   ctx.restore();
-}
-
-function drawL1Character(r: RenderContext, cx: number, cy: number): void {
-  const { ctx } = r;
-  ctx.font = '120px serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(EMOJI, cx, cy);
-
-  if (r.mouthShape !== 'closed') {
-    drawMouthLabel(r, cx, cy - 90);
-  }
-}
-
-function drawL2Character(r: RenderContext, cx: number, cy: number): void {
-  const { ctx } = r;
-  const img = r.baseImageLoaded;
-  if (img) {
-    const maxDim = 400;
-    let w = img.width;
-    let h = img.height;
-    if (w > maxDim || h > maxDim) {
-      const scale = maxDim / Math.max(w, h);
-      w *= scale;
-      h *= scale;
-    }
-    ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
-  } else {
-    ctx.font = '120px serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(EMOJI, cx, cy);
-  }
-
-  if (r.mouthShape !== 'closed') {
-    const size = 32 + (r.energy / 255) * 32;
-    drawMouthLabelWithSize(r, cx + r.config.mouthOffset.x, cy + r.config.mouthOffset.y, size);
-  }
 }
 
 function drawL3Character(r: RenderContext, cx: number, cy: number): void {
@@ -128,12 +81,9 @@ function drawL3Character(r: RenderContext, cx: number, cy: number): void {
     }
     ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
 
-    const mouthImg =
-      r.mouthShape !== 'closed'
-        ? r.mouthImagesLoaded[r.mouthShape]
-        : null;
+    const mouthImg = r.mouthImagesLoaded[r.mouthShape] ?? null;
 
-    if (mouthImg && r.mouthShape !== 'closed') {
+    if (mouthImg) {
       const faceRegionSize = Math.min(w, h) * 0.8;
       const mw = faceRegionSize;
       const mh = (mouthImg.height / mouthImg.width) * mw;
@@ -144,33 +94,8 @@ function drawL3Character(r: RenderContext, cx: number, cy: number): void {
         mw,
         mh
       );
-    } else if (r.mouthShape !== 'closed') {
-      const size = 32 + (r.energy / 255) * 32;
-      drawMouthLabelWithSize(r, cx + r.config.mouthOffset.x, cy + r.config.mouthOffset.y, size);
-    }
-  } else {
-    ctx.font = '120px serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(EMOJI, cx, cy);
-
-    if (r.mouthShape !== 'closed') {
-      drawMouthLabel(r, cx, cy - 90);
     }
   }
-}
-
-function drawMouthLabel(r: RenderContext, x: number, y: number): void {
-  drawMouthLabelWithSize(r, x, y, 48);
-}
-
-function drawMouthLabelWithSize(r: RenderContext, x: number, y: number, size: number): void {
-  const { ctx } = r;
-  ctx.font = `bold ${size}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = COLORS.mouthLabel;
-  ctx.fillText(r.mouthShape, x, y);
 }
 
 function drawLyrics(r: RenderContext): void {
@@ -238,11 +163,10 @@ function drawHUD(r: RenderContext): void {
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
 
-  const modeText = `层级: ${r.config.renderMode}`;
   const energyText = `能量: ${Math.round(r.energy)}`;
   const mouthText = `口型: ${r.mouthShape}`;
 
-  ctx.fillText(`${modeText} | ${energyText} | ${mouthText}`, 10, 20);
+  ctx.fillText(`${energyText} | ${mouthText}`, 10, 20);
 }
 
 function roundRect(

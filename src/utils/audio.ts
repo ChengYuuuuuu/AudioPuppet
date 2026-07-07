@@ -436,8 +436,8 @@ export function updateBounce(
   // Keyframes: [t, scaleX, scaleY]
   const kf: [number, number, number][] = [
     [0.00, 1, 1],
-    [0.10, 1 + 0.10 * i, 1 - 0.10 * i],
-    [0.55, 1 - 0.20 * i, 1 + 0.30 * i],
+    [0.10, 1 + 0.05 * i, 1 - 0.05 * i],
+    [0.55, 1 - 0.10 * i, 1 + 0.10 * i],
     [1.00, 1, 1],
   ];
 

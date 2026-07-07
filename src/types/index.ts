@@ -17,6 +17,7 @@ export interface MouthImages {
   I: string | null;
   O: string | null;
   U: string | null;
+  closed: string | null;
 }
 
 export interface CharacterAssets {
@@ -25,7 +26,7 @@ export interface CharacterAssets {
 }
 
 export type MouthShape = 'A' | 'E' | 'I' | 'O' | 'U' | 'closed';
-export type RenderMode = 'L1' | 'L2' | 'L3';
+export type RenderMode = 'L3';
 
 export interface PlaybackState {
   isPlaying: boolean;
@@ -61,7 +62,7 @@ export interface AudioAnalyserData {
 export const DEFAULT_MOUTH_OFFSET = { x: 0, y: -60 };
 
 export const DEFAULT_UI_CONFIG: UIConfig = {
-  renderMode: 'L1',
+  renderMode: 'L3',
   mouthOffset: { ...DEFAULT_MOUTH_OFFSET },
   sensitivity: 1.0,
   bounceIntensity: 0.6,

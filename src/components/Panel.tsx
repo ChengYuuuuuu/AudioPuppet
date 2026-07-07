@@ -1,7 +1,6 @@
 import { useState, useCallback, forwardRef, useEffect, useRef, useLayoutEffect } from 'react';
 import {
   type CharacterAssets,
-  type RenderMode,
   type MouthImages,
   type UIConfig,
   type PlaybackState,
@@ -30,7 +29,7 @@ function parseLyricText(text: string): { original: string; translation: string }
   return { original: text, translation: '' };
 }
 
-export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(function CanvasPreview(
+export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknown>>(function CanvasPreview(
   {
     assets,
     config,
@@ -39,9 +38,22 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
     bounceScale,
     baseImageLoaded,
     mouthImagesLoaded,
-  }: CanvasPreviewProps,
+    onMouthOffsetChange,
+  }: {
+    assets: CharacterAssets;
+    config: UIConfig;
+    playbackState: PlaybackState;
+    mouthShape: MouthShape;
+    bounceScale: { scaleX: number; scaleY: number };
+    baseImageLoaded: HTMLImageElement | null;
+    mouthImagesLoaded: Record<string, HTMLImageElement | null>;
+    onMouthOffsetChange?: (offset: { x: number; y: number }) => void;
+  },
   ref
 ) {
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+
   useEffect(() => {
     const canvas = (ref as React.RefObject<HTMLCanvasElement | null>).current;
     if (!canvas) return;
@@ -109,8 +121,36 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
 
     requestAnimationFrame(frame);
 
-    return () => { running = false; };
-  }, [ref, playbackState, mouthShape, bounceScale, assets, config, baseImageLoaded, mouthImagesLoaded]);
+    const onMouseDown = (e: MouseEvent) => {
+      isDragging.current = true;
+      dragStart.current = { x: e.clientX, y: e.clientY, offsetX: config.mouthOffset.x, offsetY: config.mouthOffset.y };
+      canvas.style.cursor = 'grabbing';
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const dx = e.clientX - dragStart.current.x;
+      const dy = e.clientY - dragStart.current.y;
+      onMouthOffsetChange?.({ x: dragStart.current.offsetX + dx, y: dragStart.current.offsetY + dy });
+    };
+
+    const onMouseUp = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      canvas.style.cursor = 'default';
+    };
+
+    canvas.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    return () => {
+      running = false;
+      canvas.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [ref, playbackState, mouthShape, bounceScale, assets, config, baseImageLoaded, mouthImagesLoaded, onMouthOffsetChange]);
 
   const itemIdRef = useRef(0);
   const prevLyricRef = useRef<LyricLine | null>(null);
@@ -198,7 +238,6 @@ interface RightPanelProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   assets: CharacterAssets;
   onAssetsChange: (assets: CharacterAssets) => void;
-  onModeChange: (mode: RenderMode) => void;
   onSongLoad: (data: { title: string; artist: string; coverUrl: string; audioUrl: string; lyrics: string }) => void;
   onLyricsLoad: (lrcText: string) => void;
   onSeek: (time: number) => void;
@@ -208,7 +247,7 @@ interface RightPanelProps {
   analyzing?: boolean;
 }
 
-const MOUTH_KEYS: (keyof MouthImages)[] = ['A', 'E', 'I', 'O', 'U'];
+const MOUTH_KEYS: (keyof MouthImages)[] = ['closed', 'A', 'E', 'I', 'O', 'U'];
 
 export function RightPanel({
   audioEngine,
@@ -217,7 +256,6 @@ export function RightPanel({
   onConfigChange,
   assets,
   onAssetsChange,
-  onModeChange,
   onSongLoad,
   onLyricsLoad,
   onSeek,
@@ -393,20 +431,6 @@ export function RightPanel({
         </button>
       </div>
 
-      <div>
-        <div className="mode-dots">
-          {(['L1', 'L2', 'L3'] as RenderMode[]).map((mode) => (
-            <button
-              key={mode}
-              className={`mode-dot ${config.renderMode === mode ? 'active' : ''}`}
-              onClick={() => onModeChange(mode)}
-              title={mode}
-            />
-          ))}
-        </div>
-        <div className="mode-label">{config.renderMode}</div>
-      </div>
-
       <div className="sliders-compact">
         <div className="slider-row">
           <label>灵敏度</label>
@@ -437,15 +461,14 @@ export function RightPanel({
         </div>
       </div>
 
-      {config.renderMode !== 'L1' && (
-        <div className="asset-section">
-          <div className="label">角色素材</div>
-          <div className="asset-btns">
-            <label className={`asset-btn ${assets.baseImage ? 'uploaded' : ''}`}>
-              {assets.baseImage ? '底图 ✓' : '角色底图'}
-              <input type="file" accept="image/png,image/jpeg" onChange={handleBaseImageUpload} />
-            </label>
-            {config.renderMode === 'L3' && MOUTH_KEYS.map((key) => (
+      <div className="asset-section">
+        <div className="label">角色素材</div>
+        <div className="asset-btns">
+          <label className={`asset-btn ${assets.baseImage ? 'uploaded' : ''}`}>
+            {assets.baseImage ? '底图 ✓' : '角色底图'}
+            <input type="file" accept="image/png,image/jpeg" onChange={handleBaseImageUpload} />
+          </label>
+          {MOUTH_KEYS.map((key) => (
               <label key={key} className={`asset-btn ${assets.mouthImages[key] ? 'uploaded' : ''}`}>
                 {assets.mouthImages[key] ? `${key} ✓` : key}
                 <input type="file" accept="image/png" onChange={handleMouthUpload(key)} />
@@ -453,7 +476,6 @@ export function RightPanel({
             ))}
           </div>
         </div>
-      )}
 
       <div className="asset-section">
         <div className="label">上传音频测试</div>
