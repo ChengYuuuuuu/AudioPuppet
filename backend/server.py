@@ -38,8 +38,9 @@ class AnalyzeURLRequest(BaseModel):
 script_dir = os.path.dirname(__file__)
 ckpt_path = os.path.join(script_dir, "sofa_source", "ckpt", "v1.0.0_mandarin_singing.ckpt")
 dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "opencpop-extension.txt")
+ja_dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "japanese-dictionary-compat.txt")
 
-aligner = SofaAligner(ckpt_path, dict_path)
+aligner = SofaAligner(ckpt_path, dict_path, ja_dict_path=ja_dict_path)
 
 
 def detect_beats(audio: np.ndarray, sr: float) -> tuple:

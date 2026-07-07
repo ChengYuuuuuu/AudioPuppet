@@ -18,7 +18,7 @@ from modules.task.forced_alignment import LitForcedAlignmentTask
 
 
 class SofaAligner:
-    def __init__(self, ckpt_path: str, dict_path: str):
+    def __init__(self, ckpt_path: str, dict_path: str, ja_dict_path: str = None):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         log.info(f"Loading SOFA model from {ckpt_path} on {self.device}...")
 
@@ -28,6 +28,7 @@ class SofaAligner:
         self.model.eval()
 
         self.g2p = DictionaryG2P(dictionary=dict_path)
+        self.g2p_ja = DictionaryG2P(dictionary=ja_dict_path) if ja_dict_path and os.path.exists(ja_dict_path) else None
         self.melspec_config = self.model.melspec_config
         self.model.get_melspec = None
 
@@ -64,25 +65,63 @@ class SofaAligner:
             log.warning("pypinyin not installed, assuming text is already pinyin")
             return text
 
-    def _preprocess_text(self, lyrics_text: str) -> str:
+    @staticmethod
+    def _is_japanese(text: str) -> bool:
+        return bool(re.search(r'[\u3040-\u309f\u30a0-\u30ff]', text))
+
+    def _japanese_to_romaji_mora(self, text: str) -> str:
+        try:
+            import pykakasi
+            kks = pykakasi.kakasi()
+            result = kks.convert(text)
+            hira = "".join(item["hira"] for item in result)
+            small = set("ぁぃぅぇぉゃゅょゎっァィゥェォャュョヮッ")
+            mora = []
+            buf = ""
+            for ch in hira:
+                if ch in small:
+                    buf += ch
+                else:
+                    if buf:
+                        mora.append(buf)
+                    buf = ch
+            if buf:
+                mora.append(buf)
+            romaji_mora = []
+            for m in mora:
+                r = kks.convert(m)
+                romaji_mora.append(r[0]["hepburn"] if r else m)
+            return " ".join(romaji_mora)
+        except ImportError:
+            log.warning("pykakasi not installed, falling back to raw text for Japanese")
+            return text
+
+    def _preprocess_text(self, lyrics_text: str) -> tuple:
         plain = self._extract_lyrics_text(lyrics_text)
         if not plain.strip():
-            return ""
+            return ("", None)
         plain = re.sub(r'\s+', ' ', plain).strip()
+        if self._is_japanese(plain):
+            return (self._japanese_to_romaji_mora(plain), "ja")
         has_chinese = bool(re.search(r'[\u4e00-\u9fff]', plain))
         if has_chinese:
-            return self._chinese_to_pinyin(plain)
-        return plain
+            return (self._chinese_to_pinyin(plain), "zh")
+        return (plain, None)
 
     def align(self, audio_path: str, lyrics_text: str) -> dict:
-        pinyin_text = self._preprocess_text(lyrics_text)
-        if not pinyin_text.strip():
+        processed_text, lang = self._preprocess_text(lyrics_text)
+        if not processed_text.strip():
             log.warning("Empty lyrics text after preprocessing")
             return {"success": False, "phonemes": [], "words": [], "confidence": 0.0}
 
-        log.info(f"Pinyin text ({len(pinyin_text)} chars): {pinyin_text[:200]}...")
+        log.info(f"[lang={lang}] Processed text ({len(processed_text)} chars): {processed_text[:200]}...")
 
-        ph_seq, word_seq, ph_idx_to_word_idx = self.g2p._g2p(pinyin_text)
+        if lang == "ja" and self.g2p_ja is not None:
+            g2p = self.g2p_ja
+        else:
+            g2p = self.g2p
+
+        ph_seq, word_seq, ph_idx_to_word_idx = g2p._g2p(processed_text)
         if len(ph_seq) < 2:
             log.warning("No valid phonemes after G2P conversion")
             return {"success": False, "phonemes": [], "words": [], "confidence": 0.0}
