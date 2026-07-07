@@ -16,17 +16,20 @@ import { renderFrame, type RenderContext } from '../utils/renderer';
 import { AudioEngine } from '../utils/audio';
 
 function parseLyricText(text: string): { original: string; translation: string } {
-  const separators = [' // ', ' / ', '//', '/'];
-  for (const sep of separators) {
+  for (const sep of [' // ', ' / ', '//', '/']) {
     const idx = text.indexOf(sep);
     if (idx > 0) {
       return {
         original: text.slice(0, idx).trim(),
-        translation: text.slice(idx + sep.length).trim().replace(/^[（(【]|[）)】]$/g, '').trim(),
+        translation: text.slice(idx + sep.length).trim(),
       };
     }
   }
-  return { original: text, translation: '' };
+  const m = text.match(/^(.+?)[（(]([^）)]+)[）)]\s*$/);
+  if (m) {
+    return { original: m[1].trim(), translation: m[2].trim() };
+  }
+  return { original: text.trim(), translation: '' };
 }
 
 export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknown>>(function CanvasPreview(

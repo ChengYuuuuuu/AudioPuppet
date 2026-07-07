@@ -109,9 +109,23 @@ function drawLyrics(r: RenderContext): void {
   const padding = 16;
   const radius = 12;
 
-  const parts = currentLyric.text.split(/ \/ | \/\/ |\/\//).map(s => s.trim());
-  const original = parts[0] || currentLyric.text;
-  const translation = parts.length > 1 ? parts[1] : '';
+  let original = currentLyric.text;
+  let translation = '';
+  for (const sep of [' // ', ' / ', '//', '/']) {
+    const idx = currentLyric.text.indexOf(sep);
+    if (idx > 0) {
+      original = currentLyric.text.slice(0, idx).trim();
+      translation = currentLyric.text.slice(idx + sep.length).trim();
+      break;
+    }
+  }
+  if (!translation) {
+    const m = currentLyric.text.match(/^(.+?)[（(]([^）)]+)[）)]\s*$/);
+    if (m) {
+      original = m[1].trim();
+      translation = m[2].trim();
+    }
+  }
 
   const hasTranslation = !!translation;
   const lineH1 = 20;

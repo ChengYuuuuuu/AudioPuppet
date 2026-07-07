@@ -33,17 +33,24 @@ class SofaAligner:
 
         log.info(f"SOFA model loaded (vocab_size={self.model.vocab['<vocab_size>']})")
 
+    @staticmethod
+    def _strip_line(clean: str) -> str:
+        for sep in [' // ', ' / ', '//', '/']:
+            idx = clean.find(sep)
+            if idx > 0:
+                return clean[:idx].strip()
+        m = re.match(r'^(.+?)[（(]([^）)]+)[）)]\s*$', clean)
+        if m:
+            return m.group(1).strip()
+        return clean.strip()
+
     def _extract_lyrics_text(self, lrc_text: str) -> str:
         lines = lrc_text.strip().split("\n")
         text_parts = []
         for line in lines:
             clean = re.sub(r'\[\d{2}:\d{2}(?:\.\d+)?\]', '', line).strip()
             clean = re.sub(r'\[[a-z]+:.*?\]', '', clean).strip()
-            for sep in [' // ', ' / ', '//', '/']:
-                idx = clean.find(sep)
-                if idx > 0:
-                    clean = clean[:idx].strip()
-                    break
+            clean = self._strip_line(clean)
             if clean:
                 text_parts.append(clean)
         return " ".join(text_parts)
