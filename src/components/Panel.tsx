@@ -369,7 +369,7 @@ export function RightPanel({
 
   return (
     <div className="right-panel">
-      <div className="right-panel-logo">对口型</div>
+      <div className="right-panel-logo">对口型是不对的！</div>
 
       <div className="song-import">
         <input
