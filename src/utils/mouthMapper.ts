@@ -25,8 +25,20 @@ const PHONEME_TO_MOUTH: Record<string, MouthShape> = {
   SP: 'closed', AP: 'closed',
 };
 
+function extractVowelFromEnd(s: string): MouthShape | null {
+  for (let i = s.length - 1; i >= 0; i--) {
+    const ch = s[i].toLowerCase();
+    if ('aeiou'.includes(ch)) return ch.toUpperCase() as MouthShape;
+  }
+  return null;
+}
+
 export function phonemeToMouth(ph: string): MouthShape {
-  return PHONEME_TO_MOUTH[ph] || 'closed';
+  const exact = PHONEME_TO_MOUTH[ph];
+  if (exact) return exact;
+  const vowel = extractVowelFromEnd(ph);
+  if (vowel) return vowel;
+  return 'closed';
 }
 
 export function phonemesToMouthPoints(phonemes: SofaPhoneme[]): Array<{
