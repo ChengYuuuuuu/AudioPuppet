@@ -296,31 +296,20 @@ export async function exportGIF(
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  const frames: ImageData[] = [];
-  const frameInterval = duration / totalFrames;
-
-  ctx.save();
-  for (let i = 0; i < totalFrames; i++) {
-    const imageData = ctx.getImageData(0, 0, width, height);
-    frames.push(imageData);
-  }
-  ctx.restore();
-
   const encoder = new GIFEncoder(width, height);
   encoder.start();
   encoder.setRepeat(0);
   encoder.setDelay(1000 / fps);
 
-  for (const frame of frames) {
-    encoder.addFrame(frame);
+  for (let i = 0; i < totalFrames; i++) {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    encoder.addFrame(imageData);
   }
   encoder.finish();
 
-  return new Promise((resolve) => {
-    const binary = encoder.stream().getData();
-    const blob = new Blob([binary], { type: 'image/gif' });
-    resolve(blob);
-  });
+  const binary = encoder.stream().getData();
+  const blob = new Blob([binary], { type: 'image/gif' });
+  return blob;
 }
 
 class LZWStream {
@@ -446,101 +435,6 @@ class GIFEncoder {
     }
 
     this._stream.writeByte(0x00);
-  }
-
-  start(): void {
-    this.writeHeader();
-    this.writeLSD();
-    this.started = true;
-  }
-
-  setRepeat(repeat: number): void {
-    this.stream.writeByte(0x21);
-    this.stream.writeByte(0xff);
-    this.stream.writeByte(0x0b);
-    this.stream.writeBytes([78, 69, 84, 83, 67, 65, 80, 69, 50, 46, 48]);
-    this.stream.writeByte(0x03);
-    this.stream.writeByte(repeat);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(0x00);
-  }
-
-  setDelay(ms: number): void {
-    const delay = Math.round(ms / 10);
-    this.stream.writeByte(0x21);
-    this.stream.writeByte(0xf9);
-    this.stream.writeByte(0x04);
-    this.stream.writeByte(0x04);
-    this.stream.writeByte(delay & 0xff);
-    this.stream.writeByte((delay >> 8) & 0xff);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(0x00);
-  }
-
-  addFrame(imageData: ImageData): void {
-    this.stream.writeByte(0x2c);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(this.width & 0xff);
-    this.stream.writeByte((this.width >> 8) & 0xff);
-    this.stream.writeByte(this.height & 0xff);
-    this.stream.writeByte((this.height >> 8) & 0xff);
-    this.stream.writeByte(0x00);
-
-    this.writeImageData(imageData);
-  }
-
-  finish(): void {
-    this.stream.writeByte(0x3b);
-  }
-
-  stream(): LZWStream {
-    return this.stream;
-  }
-
-  private writeHeader(): void {
-    this.stream.writeBytes([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
-  }
-
-  private writeLSD(): void {
-    this.stream.writeByte(this.width & 0xff);
-    this.stream.writeByte((this.width >> 8) & 0xff);
-    this.stream.writeByte(this.height & 0xff);
-    this.stream.writeByte((this.height >> 8) & 0xff);
-    this.stream.writeByte(0xf0);
-    this.stream.writeByte(0x00);
-    this.stream.writeByte(0x00);
-  }
-
-  private writeImageData(imageData: ImageData): void {
-    const pixels: number[] = [];
-    for (let i = 0; i < imageData.data.length; i += 4) {
-      const r = imageData.data[i];
-      const g = imageData.data[i + 1];
-      const b = imageData.data[i + 2];
-      const a = imageData.data[i + 3];
-      const index = this.rgbToPaletteIndex(r, g, b, a);
-      pixels.push(index);
-    }
-
-    this.stream.writeByte(0x80);
-
-    const bpp = 7;
-    this.stream.writeByte(0x07);
-
-    const sortedPixels = this.quantize(pixels);
-    const minCodeSize = 8;
-    this.stream.writeByte(minCodeSize);
-
-    const lzwData = this.lzwEncode(sortedPixels, minCodeSize);
-    for (const byte of lzwData) {
-      this.stream.writeByte(byte);
-    }
-
-    this.stream.writeByte(0x00);
   }
 
   private rgbToPaletteIndex(r: number, g: number, b: number, a: number): number {

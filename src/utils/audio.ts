@@ -21,6 +21,7 @@ export class AudioEngine {
   private pauseOffset = 0;
   private duration = 0;
   private animationId: number | null = null;
+  private _frequencyData: Uint8Array | null = null;
   private onFrame: ((data: AudioAnalyserData, currentTime: number) => void) | null = null;
   private onEnded: (() => void) | null = null;
   private useElement = false;
@@ -45,6 +46,7 @@ export class AudioEngine {
 
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 256;
+    this._frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
     this.gainNode = this.context.createGain();
     this.gainNode.gain.value = 0.7;
   }
@@ -76,6 +78,7 @@ export class AudioEngine {
       this.context = new AudioContext();
       this.analyser = this.context.createAnalyser();
       this.analyser.fftSize = 256;
+      this._frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
       this.gainNode = this.context.createGain();
       this.gainNode.gain.value = 0.7;
 
@@ -270,7 +273,7 @@ export class AudioEngine {
     const loop = () => {
       if (!this.isPlaying || !this.analyser || !this.context) return;
 
-      const frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
+      const frequencyData = this._frequencyData!;
       this.analyser.getByteFrequencyData(frequencyData);
 
       let energy = 0;

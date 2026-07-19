@@ -239,6 +239,10 @@ class SofaAligner:
             word_seq_pred, word_intervals_pred = add_SP(word_seq_pred, word_intervals_pred, wav_length)
             ph_seq_pred, ph_intervals_pred = add_SP(ph_seq_pred, ph_intervals_pred, wav_length)
 
+            del wav_t, melspec, ph_frame_logits, ph_edge_logits, ph_prob_log, ph_edge_pred
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+
             return (ph_seq_pred, ph_intervals_pred, word_seq_pred, word_intervals_pred, total_confidence)
 
         except Exception:

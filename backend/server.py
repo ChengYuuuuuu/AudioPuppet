@@ -15,9 +15,10 @@ from sofa_aligner import SofaAligner
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
-fh = logging.FileHandler(os.path.join(os.path.dirname(__file__), 'backend.log'), encoding='utf-8')
-fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
-log.addHandler(fh)
+if not log.handlers:
+    fh = logging.FileHandler(os.path.join(os.path.dirname(__file__), 'backend.log'), encoding='utf-8')
+    fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+    log.addHandler(fh)
 log.info(f"librosa 版本: {librosa.__version__}")
 
 app = FastAPI()
@@ -125,6 +126,7 @@ def analyze_audio_align(audio_path: str, lyrics_text: str) -> dict:
         log.info(f"音频: sr={sr}, 时长={duration:.2f}s, 样本数={len(y)}, max_amp={max_amp:.4f}, rms={rms:.4f}")
         bpm, beats = detect_beats(y, sr)
         log.info(f"结果: bpm={bpm}, 节拍数={len(beats)}")
+        del y
     except Exception:
         log.exception("Librosa 分析失败")
 

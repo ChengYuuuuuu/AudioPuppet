@@ -39,8 +39,16 @@ export function loadMouthOffset(): { x: number; y: number } | null {
 
 export function saveBaseImage(dataUrl: string): void {
   try {
+    const size = new Blob([dataUrl]).size;
+    if (size > 4 * 1024 * 1024) {
+      console.warn('Base image too large for localStorage, skipping save');
+      return;
+    }
     localStorage.setItem(STORAGE_KEYS.BASE_IMAGE, dataUrl);
-  } catch {}
+  } catch (e) {
+    console.warn('localStorage save failed (image too large?), clearing old data');
+    try { localStorage.removeItem(STORAGE_KEYS.BASE_IMAGE); } catch {}
+  }
 }
 
 export function loadBaseImage(): string | null {
@@ -52,8 +60,16 @@ export function loadBaseImage(): string | null {
 
 export function saveMouthImages(images: MouthImages): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.MOUTH_IMAGES, JSON.stringify(images));
-  } catch {}
+    const json = JSON.stringify(images);
+    if (json.length > 4 * 1024 * 1024) {
+      console.warn('Mouth images too large for localStorage, skipping save');
+      return;
+    }
+    localStorage.setItem(STORAGE_KEYS.MOUTH_IMAGES, json);
+  } catch (e) {
+    console.warn('localStorage save failed, clearing mouth images');
+    try { localStorage.removeItem(STORAGE_KEYS.MOUTH_IMAGES); } catch {}
+  }
 }
 
 export function loadMouthImages(): MouthImages | null {

@@ -70,6 +70,7 @@ export default function App() {
   const whisperTimelineRef = useRef<MouthPoint[]>([]);
   const beatTimesRef = useRef<number[]>([]);
   const configRef = useRef(config);
+  const energyHistoryRef = useRef<number[]>([]);
   configRef.current = config;
   beatTimesRef.current = beatTimes;
 
@@ -112,10 +113,7 @@ export default function App() {
         duration: engine.getDuration(),
       }));
 
-      setEnergyHistory(prev => {
-        if (prev.length > 300) return [...prev.slice(-299), energy];
-        return [...prev, energy];
-      });
+      energyHistoryRef.current = [...energyHistoryRef.current.slice(-299), energy];
 
       let mouth: MouthShape | null = null;
       for (const p of whisperTimelineRef.current) {
@@ -165,6 +163,7 @@ export default function App() {
       }
 
       if (data.audioUrl) {
+        audioEngineRef.current?.destroy();
         const engine = new AudioEngine();
         audioEngineRef.current = engine;
         setupAudioEngine(engine, lyricsList);
@@ -244,6 +243,13 @@ export default function App() {
   useEffect(() => {
     audioEngineRef.current?.setVolume(playbackState.volume);
   }, [playbackState.volume]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setEnergyHistory(energyHistoryRef.current);
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
