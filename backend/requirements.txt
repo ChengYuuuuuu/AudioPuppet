@@ -4,4 +4,3 @@ python-multipart
 requests
 librosa
 pypinyin
-pykakasi
