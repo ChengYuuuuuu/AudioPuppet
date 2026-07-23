@@ -51,7 +51,7 @@ export async function parseNeteaseSong(url: string): Promise<NCMResponse> {
         lyrics,
       },
     };
-  } catch (err) {
+  } catch {
     return { success: false, error: 'API 请求失败，请检查网络连接' };
   }
 }
@@ -72,7 +72,7 @@ export function extractSongId(url: string): string | null {
 export function parseLRC(lrcText: string): LyricLine[] {
   const lines = lrcText.split('\n');
   const lyrics: LyricLine[] = [];
-  const timeRegex = /\[(\d{2}):(\d{2})[\.:](\d{2,3})\]/g;
+  const timeRegex = /\[(\d{2}):(\d{2})[.:](\d{2,3})\]/g;
 
   for (const line of lines) {
     const matches = [...line.matchAll(timeRegex)];

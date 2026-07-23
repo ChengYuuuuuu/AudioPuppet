@@ -47,7 +47,7 @@ export interface UIConfig {
 }
 
 export interface BounceState {
-  phase: 'idle' | 'compress' | 'hold' | 'release';
+  phase: 'idle' | 'compress' | 'stretch' | 'reCompress' | 'settle';
   currentBeatIndex: number;
   triggerTime: number;
   scaleX: number;

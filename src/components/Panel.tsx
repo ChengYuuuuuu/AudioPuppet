@@ -12,25 +12,9 @@ import { parseNeteaseSong } from '../utils/api';
 import { analyzeSofaBlob } from '../utils/sofa';
 import { phonemesToMouthPoints } from '../utils/mouthMapper';
 import { saveBaseImage, saveMouthImages } from '../utils/storage';
-import { renderFrame, type RenderContext } from '../utils/renderer';
+import { renderFrame } from '../utils/renderer';
+import { parseLyricText } from '../utils/lyrics';
 import { AudioEngine } from '../utils/audio';
-
-function parseLyricText(text: string): { original: string; translation: string } {
-  for (const sep of [' // ', ' / ', '//', '/']) {
-    const idx = text.indexOf(sep);
-    if (idx > 0) {
-      return {
-        original: text.slice(0, idx).trim(),
-        translation: text.slice(idx + sep.length).trim(),
-      };
-    }
-  }
-  const m = text.match(/^(.+?)[（(]([^）)]+)[）)]\s*$/);
-  if (m) {
-    return { original: m[1].trim(), translation: m[2].trim() };
-  }
-  return { original: text.trim(), translation: '' };
-}
 
 export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknown>>(function CanvasPreview(
   {
@@ -56,6 +40,20 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
 ) {
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  const animDataRef = useRef({} as {
+    playbackState: typeof playbackState;
+    mouthShape: typeof mouthShape;
+    bounceScale: typeof bounceScale;
+    assets: typeof assets;
+    config: typeof config;
+    baseImageLoaded: typeof baseImageLoaded;
+    mouthImagesLoaded: typeof mouthImagesLoaded;
+    onMouthOffsetChange: typeof onMouthOffsetChange;
+  });
+  animDataRef.current = {
+    playbackState, mouthShape, bounceScale, assets, config,
+    baseImageLoaded, mouthImagesLoaded, onMouthOffsetChange,
+  };
 
   useEffect(() => {
     const canvas = (ref as React.RefObject<HTMLCanvasElement | null>).current;
@@ -79,6 +77,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
 
     const frame = (now: number) => {
       if (!running) return;
+      const d = animDataRef.current;
 
       const rect2 = canvas.getBoundingClientRect();
       if (canvas.width !== rect2.width * dpr || canvas.height !== rect2.height * dpr) {
@@ -87,7 +86,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      const currentLyric = playbackState.currentLyric;
+      const currentLyric = d.playbackState.currentLyric;
       if (currentLyric && currentLyric !== prevLyric) {
         prevLyric = currentLyric;
         lyricTransition = 0;
@@ -99,19 +98,19 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
         lyricTransition = Math.min(elapsed / 300, 1);
       }
 
-      const rc: RenderContext = {
+      const rc = {
         ctx,
         width: rect2.width,
         height: rect2.height,
-        time: playbackState.currentTime,
-        energy: playbackState.energy,
-        mouthShape,
-        bounceScale,
+        time: d.playbackState.currentTime,
+        energy: d.playbackState.energy,
+        mouthShape: d.mouthShape,
+        bounceScale: d.bounceScale,
         currentLyric,
-        assets,
-        config,
-        mouthImagesLoaded,
-        baseImageLoaded,
+        assets: d.assets,
+        config: d.config,
+        mouthImagesLoaded: d.mouthImagesLoaded,
+        baseImageLoaded: d.baseImageLoaded,
         prevLyric: null,
         lyricTransition,
       };
@@ -125,8 +124,9 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     requestAnimationFrame(frame);
 
     const onMouseDown = (e: MouseEvent) => {
+      const d = animDataRef.current;
       isDragging.current = true;
-      dragStart.current = { x: e.clientX, y: e.clientY, offsetX: config.mouthOffset.x, offsetY: config.mouthOffset.y };
+      dragStart.current = { x: e.clientX, y: e.clientY, offsetX: d.config.mouthOffset.x, offsetY: d.config.mouthOffset.y };
       canvas.style.cursor = 'grabbing';
     };
 
@@ -134,7 +134,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
       if (!isDragging.current) return;
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
-      onMouthOffsetChange?.({ x: dragStart.current.offsetX + dx, y: dragStart.current.offsetY + dy });
+      animDataRef.current.onMouthOffsetChange?.({ x: dragStart.current.offsetX + dx, y: dragStart.current.offsetY + dy });
     };
 
     const onMouseUp = () => {
@@ -153,7 +153,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [ref, playbackState, mouthShape, bounceScale, assets, config, baseImageLoaded, mouthImagesLoaded, onMouthOffsetChange]);
+  }, [ref]);
 
   const itemIdRef = useRef(0);
   const prevLyricRef = useRef<LyricLine | null>(null);
@@ -314,9 +314,9 @@ export function RightPanel({
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         const dataUrl = reader.result as string;
-        saveBaseImage(dataUrl);
+        await saveBaseImage(dataUrl);
         onAssetsChange({ ...assets, baseImage: dataUrl });
       };
       reader.readAsDataURL(file);
@@ -329,10 +329,10 @@ export function RightPanel({
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         const dataUrl = reader.result as string;
         const newMouthImages = { ...assets.mouthImages, [key]: dataUrl };
-        saveMouthImages(newMouthImages);
+        await saveMouthImages(newMouthImages);
         onAssetsChange({ ...assets, mouthImages: newMouthImages });
       };
       reader.readAsDataURL(file);
@@ -511,13 +511,13 @@ interface DebugPanelProps {
   nextBeatIndex: number;
   mouthShape: MouthShape;
   bounceScale: { scaleX: number; scaleY: number };
-  energyHistory: number[];
+  energyHistoryRef: React.MutableRefObject<number[]>;
   isPlaying: boolean;
 }
 
 export function DebugPanel({
   show, onClose, bpm, energy, currentTime, duration,
-  beatTimes, nextBeatIndex, mouthShape, bounceScale, energyHistory, isPlaying,
+  beatTimes, nextBeatIndex, mouthShape, bounceScale, energyHistoryRef, isPlaying,
 }: DebugPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -563,15 +563,16 @@ export function DebugPanel({
       ctx.fillRect(x - 1, 0, 2, H);
     }
 
-    if (energyHistory.length > 1) {
+    const eh = energyHistoryRef.current;
+    if (eh.length > 1) {
       ctx.beginPath();
       ctx.strokeStyle = '#4A90D9';
       ctx.lineWidth = 1.5;
-      const step = windowSec / energyHistory.length;
-      for (let i = 0; i < energyHistory.length; i++) {
+      const step = windowSec / eh.length;
+      for (let i = 0; i < eh.length; i++) {
         const t = tStart + i * step;
         const x = toX(t);
-        const norm = energyHistory[i] / 255;
+        const norm = eh[i] / 255;
         const y = H - 4 - norm * (H - 8);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
@@ -591,7 +592,7 @@ export function DebugPanel({
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
     ctx.fillText(formatTime(currentTime), px, H - 2);
-  }, [energyHistory, currentTime, beatTimes, nextBeatIndex]);
+  }, [currentTime, beatTimes, nextBeatIndex, energyHistoryRef]);
 
   if (!show) return null;
 

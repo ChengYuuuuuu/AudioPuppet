@@ -4,3 +4,8 @@ python-multipart
 requests
 librosa
 pypinyin
+pykakasi
+torch
+onnxruntime
+soundfile
+numpy

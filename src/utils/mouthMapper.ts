@@ -61,14 +61,3 @@ export function charToMouth(text: string): MouthShape {
   }
   return 'closed';
 }
-
-export function wordsToMouthPoints(
-  words: Array<{ text: string; start: number; end: number }>
-): Array<{ char: string; start: number; end: number; mouth: MouthShape }> {
-  return words.map((w) => ({
-    char: w.text.trim(),
-    start: w.start,
-    end: w.end,
-    mouth: charToMouth(w.text.trim()),
-  }));
-}

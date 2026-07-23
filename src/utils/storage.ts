@@ -1,8 +1,8 @@
 import { type UIConfig, DEFAULT_UI_CONFIG, type MouthImages } from '../types/index';
+import { dbGet, dbSet, dbClear as dbClearAll } from './db';
 
 const STORAGE_KEYS = {
   UI_CONFIG: 'lip-sync-ui-config',
-  MOUTH_OFFSET: 'lip-sync-mouth-offset',
   MOUTH_IMAGES: 'lip-sync-mouth-images',
   BASE_IMAGE: 'lip-sync-base-image',
 } as const;
@@ -23,65 +23,41 @@ export function loadUIConfig(): UIConfig {
   return { ...DEFAULT_UI_CONFIG };
 }
 
-export function saveMouthOffset(offset: { x: number; y: number }): void {
+export async function saveBaseImage(dataUrl: string): Promise<void> {
   try {
-    localStorage.setItem(STORAGE_KEYS.MOUTH_OFFSET, JSON.stringify(offset));
-  } catch {}
+    await dbSet(STORAGE_KEYS.BASE_IMAGE, dataUrl);
+  } catch (e) {
+    console.warn('IndexedDB save failed for base image', e);
+  }
 }
 
-export function loadMouthOffset(): { x: number; y: number } | null {
+export async function loadBaseImage(): Promise<string | null> {
   try {
-    const data = localStorage.getItem(STORAGE_KEYS.MOUTH_OFFSET);
+    return await dbGet(STORAGE_KEYS.BASE_IMAGE);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveMouthImages(images: MouthImages): Promise<void> {
+  try {
+    await dbSet(STORAGE_KEYS.MOUTH_IMAGES, JSON.stringify(images));
+  } catch (e) {
+    console.warn('IndexedDB save failed for mouth images', e);
+  }
+}
+
+export async function loadMouthImages(): Promise<MouthImages | null> {
+  try {
+    const data = await dbGet(STORAGE_KEYS.MOUTH_IMAGES);
     if (data) return JSON.parse(data);
   } catch {}
   return null;
 }
 
-export function saveBaseImage(dataUrl: string): void {
-  try {
-    const size = new Blob([dataUrl]).size;
-    if (size > 4 * 1024 * 1024) {
-      console.warn('Base image too large for localStorage, skipping save');
-      return;
-    }
-    localStorage.setItem(STORAGE_KEYS.BASE_IMAGE, dataUrl);
-  } catch (e) {
-    console.warn('localStorage save failed (image too large?), clearing old data');
-    try { localStorage.removeItem(STORAGE_KEYS.BASE_IMAGE); } catch {}
-  }
-}
-
-export function loadBaseImage(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEYS.BASE_IMAGE);
-  } catch {}
-  return null;
-}
-
-export function saveMouthImages(images: MouthImages): void {
-  try {
-    const json = JSON.stringify(images);
-    if (json.length > 4 * 1024 * 1024) {
-      console.warn('Mouth images too large for localStorage, skipping save');
-      return;
-    }
-    localStorage.setItem(STORAGE_KEYS.MOUTH_IMAGES, json);
-  } catch (e) {
-    console.warn('localStorage save failed, clearing mouth images');
-    try { localStorage.removeItem(STORAGE_KEYS.MOUTH_IMAGES); } catch {}
-  }
-}
-
-export function loadMouthImages(): MouthImages | null {
-  try {
-    const data = localStorage.getItem(STORAGE_KEYS.MOUTH_IMAGES);
-    if (data) return JSON.parse(data);
-  } catch {}
-  return null;
-}
-
-export function clearAllData(): void {
+export async function clearAllData(): Promise<void> {
   Object.values(STORAGE_KEYS).forEach((key) => {
     try { localStorage.removeItem(key); } catch {}
   });
+  try { await dbClearAll(); } catch {}
 }

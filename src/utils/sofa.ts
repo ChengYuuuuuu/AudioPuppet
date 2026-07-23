@@ -1,5 +1,3 @@
-import type { MouthPoint, MouthShape } from '../types';
-
 const SOFA_API = 'http://localhost:8001';
 
 export interface SofaPhoneme {

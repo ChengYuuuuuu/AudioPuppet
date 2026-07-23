@@ -3,7 +3,7 @@ import { CanvasPreview, RightPanel, DebugPanel } from './components/Panel';
 import { AudioEngine, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
-import { saveUIConfig, loadUIConfig } from './utils/storage';
+import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages } from './utils/storage';
 import { analyzeSofaUrl } from './utils/sofa';
 import { phonemesToMouthPoints } from './utils/mouthMapper';
 import {
@@ -14,6 +14,7 @@ import {
   type MouthShape,
   type MouthImages,
   type MouthPoint,
+  type BounceState,
 } from './types/index';
 import './styles/app.css';
 
@@ -59,8 +60,6 @@ export default function App() {
   const [bounceScale, setBounceScale] = useState({ scaleX: 1, scaleY: 1 });
   const [beatTimes, setBeatTimes] = useState<number[]>([]);
   const [currentBPM, setCurrentBPM] = useState<number | null>(null);
-  const [energyHistory, setEnergyHistory] = useState<number[]>([]);
-  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [showDebug, setShowDebug] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
 
@@ -159,7 +158,6 @@ export default function App() {
       let lyricsList: LyricLine[] = [];
       if (data.lyrics) {
         lyricsList = parseLRC(data.lyrics);
-        setLyrics(lyricsList);
       }
 
       if (data.audioUrl) {
@@ -203,7 +201,7 @@ export default function App() {
   }, []);
 
   const handleLyricsLoad = useCallback((lrcText: string) => {
-    setLyrics(parseLRC(lrcText));
+    parseLRC(lrcText);
   }, []);
 
   const handleConfigChange = useCallback((partial: Partial<UIConfig>) => {
@@ -235,6 +233,15 @@ export default function App() {
   }, [beatTimes]);
 
   useEffect(() => {
+    loadBaseImage().then((saved) => {
+      if (saved) setAssets((prev) => ({ ...prev, baseImage: saved }));
+    });
+    loadMouthImages().then((saved) => {
+      if (saved) setAssets((prev) => ({ ...prev, mouthImages: { ...prev.mouthImages, ...saved } }));
+    });
+  }, []);
+
+  useEffect(() => {
     return () => {
       audioEngineRef.current?.destroy();
     };
@@ -243,13 +250,6 @@ export default function App() {
   useEffect(() => {
     audioEngineRef.current?.setVolume(playbackState.volume);
   }, [playbackState.volume]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setEnergyHistory(energyHistoryRef.current);
-    }, 100);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -312,7 +312,7 @@ export default function App() {
         nextBeatIndex={bounceStateRef.current.currentBeatIndex}
         mouthShape={mouthShape}
         bounceScale={bounceScale}
-        energyHistory={energyHistory}
+        energyHistoryRef={energyHistoryRef}
         isPlaying={playbackState.isPlaying}
       />
     </div>
