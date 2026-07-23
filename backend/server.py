@@ -12,6 +12,7 @@ import numpy as np
 import requests
 
 from sofa_aligner import SofaAligner
+from vocal_separator import separate_vocals
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -112,7 +113,20 @@ def detect_beats(audio: np.ndarray, sr: float) -> tuple:
 
 
 def analyze_audio_align(audio_path: str, lyrics_text: str) -> dict:
-    sofa_result = aligner.align(audio_path, lyrics_text)
+    vocal_path = None
+    try:
+        vocal_path = separate_vocals(audio_path)
+    except Exception:
+        log.exception("人声分离失败，回退到原始音频进行SOFA对齐")
+        vocal_path = audio_path
+
+    sofa_result = aligner.align(vocal_path, lyrics_text)
+
+    if vocal_path != audio_path:
+        try:
+            os.unlink(vocal_path)
+        except Exception:
+            pass
 
     bpm = None
     beats = []
