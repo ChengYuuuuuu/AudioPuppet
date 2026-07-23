@@ -46,52 +46,16 @@ aligner = SofaAligner(ckpt_path, dict_path, ja_dict_path=ja_dict_path)
 
 def detect_beats(audio: np.ndarray, sr: float) -> tuple:
     log.info(f"  detect_beats 输入: shape={audio.shape}, sr={sr}, duration={len(audio)/sr:.2f}s")
-    configs = [
-        {"start_bpm": 120, "tightness": 100},
-        {"start_bpm": 80, "tightness": 60},
-        {"start_bpm": 140, "tightness": 80},
-        {"start_bpm": 60, "tightness": 40},
-    ]
-
-    for i, cfg in enumerate(configs):
-        try:
-            log.debug(f"  beat_track [{i}] 调用: y.shape={audio.shape}, cfg={cfg}")
-            tempo, beat_times = librosa.beat.beat_track(
-                y=audio, sr=sr, units='time',
-                start_bpm=cfg["start_bpm"],
-                tightness=cfg["tightness"],
-            )
-            beats_arr = beat_times if hasattr(beat_times, '__len__') else []
-            n_beats = len(beats_arr)
-            log.info(f"  beat_track [{i}] cfg={cfg}: tempo={tempo} (type={type(tempo).__name__}), "
-                     f"beat_times type={type(beat_times).__name__}, beats={n_beats}")
-            if n_beats >= 1:
-                bpm_val = None
-                if tempo is not None:
-                    try:
-                        t = tempo.item() if hasattr(tempo, 'item') else float(tempo)
-                        if t > 0:
-                            bpm_val = round(t, 1)
-                    except (TypeError, ValueError, AttributeError):
-                        pass
-                log.info(f"  beat_track [{i}] 成功: bpm={bpm_val}, 首拍={beats_arr[0]:.4f}")
-                return bpm_val, [float(t) for t in beats_arr]
-            else:
-                log.warning(f"  beat_track [{i}] 返回 0 拍: tempo={tempo}")
-        except Exception:
-            log.exception(f"  beat_track [{i}] 异常")
-
     try:
-        log.debug("  beat_track [fallback] 调用 onset_strength...")
-        onset_env = librosa.onset.onset_strength(y=audio, sr=sr, aggregate=np.median)
-        log.debug(f"  onset_env: shape={onset_env.shape}, mean={float(np.mean(onset_env)):.4f}")
+        log.debug(f"  beat_track 调用: y.shape={audio.shape}, start_bpm=120, tightness=100")
         tempo, beat_times = librosa.beat.beat_track(
-            onset_envelope=onset_env, sr=sr, units='time',
-            start_bpm=120, tightness=50,
+            y=audio, sr=sr, units='time',
+            start_bpm=120,
+            tightness=100,
         )
         beats_arr = beat_times if hasattr(beat_times, '__len__') else []
         n_beats = len(beats_arr)
-        log.info(f"  beat_track [fallback onset]: tempo={tempo} (type={type(tempo).__name__}), "
+        log.info(f"  beat_track: tempo={tempo} (type={type(tempo).__name__}), "
                  f"beat_times type={type(beat_times).__name__}, beats={n_beats}")
         if n_beats >= 1:
             bpm_val = None
@@ -102,13 +66,14 @@ def detect_beats(audio: np.ndarray, sr: float) -> tuple:
                         bpm_val = round(t, 1)
                 except (TypeError, ValueError, AttributeError):
                     pass
+            log.info(f"  beat_track 成功: bpm={bpm_val}, 首拍={beats_arr[0]:.4f}")
             return bpm_val, [float(t) for t in beats_arr]
         else:
-            log.warning(f"  beat_track [fallback] 返回 0 拍: tempo={tempo}")
+            log.warning(f"  beat_track 返回 0 拍: tempo={tempo}")
     except Exception:
-        log.exception("  beat_track [fallback] 异常")
+        log.exception("  beat_track 异常")
 
-    log.warning("所有节拍检测策略均失败，返回 None, []")
+    log.warning("节拍检测失败，返回 None, []")
     return None, []
 
 
