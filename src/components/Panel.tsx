@@ -342,6 +342,19 @@ export function RightPanel({
 
   const [fileAnalyzing, setFileAnalyzing] = useState(false);
   const [fileLyrics, setFileLyrics] = useState('');
+  const [lrcFileName, setLrcFileName] = useState('');
+
+  const handleLrcUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFileLyrics(reader.result as string);
+      setLrcFileName(file.name);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -436,18 +449,9 @@ export function RightPanel({
 
       <div className="sliders-compact">
         <div className="slider-row">
-          <label>灵敏度</label>
-          <input
-            type="range" min="0.5" max="1.5" step="0.1"
-            value={config.sensitivity}
-            onChange={(e) => onConfigChange({ sensitivity: parseFloat(e.target.value) })}
-          />
-          <span className="val">{config.sensitivity.toFixed(1)}</span>
-        </div>
-        <div className="slider-row">
           <label>弹跳</label>
           <input
-            type="range" min="0.3" max="1.0" step="0.1"
+            type="range" min="0" max="1.0" step="0.1"
             value={config.bounceIntensity}
             onChange={(e) => onConfigChange({ bounceIntensity: parseFloat(e.target.value) })}
           />
@@ -482,17 +486,14 @@ export function RightPanel({
 
       <div className="asset-section">
         <div className="label">上传音频测试</div>
-        <textarea
-          className="file-lyrics-input"
-          placeholder="粘贴歌词文本（SOFA 需要歌词进行对齐）..."
-          value={fileLyrics}
-          onChange={(e) => setFileLyrics(e.target.value)}
-          rows={3}
-        />
         <div className="asset-btns">
           <label className={`asset-btn ${fileAnalyzing ? '' : ''}`}>
             {fileAnalyzing ? '分析中...' : '选择音频文件'}
             <input type="file" accept="audio/*" onChange={handleFileUpload} disabled={fileAnalyzing} />
+          </label>
+          <label className={`asset-btn ${lrcFileName ? 'uploaded' : ''}`}>
+            {lrcFileName || '选择LRC歌词'}
+            <input type="file" accept=".lrc,.txt" onChange={handleLrcUpload} />
           </label>
         </div>
       </div>
