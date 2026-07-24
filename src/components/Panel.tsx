@@ -7,14 +7,19 @@ import {
   type LyricLine,
   type MouthShape,
   type MouthPoint,
+  type AssetTransform,
+  DEFAULT_TRANSFORM,
 } from '../types/index';
 import { parseNeteaseSong } from '../utils/api';
 import { analyzeSofaBlob } from '../utils/sofa';
 import { phonemesToMouthPoints } from '../utils/mouthMapper';
 import { saveBaseImage, saveMouthImages } from '../utils/storage';
-import { renderFrame } from '../utils/renderer';
+import { renderFrame, getAssetCenter, getAssetSize, computeVisibleBounds, type VisibleBounds } from '../utils/renderer';
 import { parseLyricText } from '../utils/lyrics';
 import { AudioEngine } from '../utils/audio';
+
+const HANDLE_RADIUS = 8;
+const ROTATE_RADIUS = 10;
 
 export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknown>>(function CanvasPreview(
   {
@@ -26,6 +31,11 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     baseImageLoaded,
     mouthImagesLoaded,
     onMouthOffsetChange,
+    transforms,
+    editMode,
+    selectedAsset,
+    onSelectAsset,
+    onEditTransform,
   }: {
     assets: CharacterAssets;
     config: UIConfig;
@@ -35,11 +45,16 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     baseImageLoaded: HTMLImageElement | null;
     mouthImagesLoaded: Record<string, HTMLImageElement | null>;
     onMouthOffsetChange?: (offset: { x: number; y: number }) => void;
+    transforms?: Record<string, AssetTransform>;
+    editMode?: boolean;
+    selectedAsset?: string | null;
+    onSelectAsset?: (key: string | null) => void;
+    onEditTransform?: (key: string, t: AssetTransform) => void;
   },
   ref
 ) {
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  const editInteraction = useRef<{ type: 'move' | 'resize' | 'rotate'; startX: number; startY: number; cx: number; cy: number; startT: AssetTransform } | null>(null);
+  const visibleBoundsRef = useRef<Record<string, VisibleBounds>>({});
   const animDataRef = useRef({} as {
     playbackState: typeof playbackState;
     mouthShape: typeof mouthShape;
@@ -48,11 +63,34 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     config: typeof config;
     baseImageLoaded: typeof baseImageLoaded;
     mouthImagesLoaded: typeof mouthImagesLoaded;
-    onMouthOffsetChange: typeof onMouthOffsetChange;
+    transforms: typeof transforms;
+    editMode: typeof editMode;
+    selectedAsset: typeof selectedAsset;
+    onSelectAsset: typeof onSelectAsset;
+    onEditTransform: typeof onEditTransform;
+    visibleBounds: Record<string, VisibleBounds>;
   });
+
+  // Compute visible bounds whenever images change
+  if (baseImageLoaded && !visibleBoundsRef.current.base) {
+    visibleBoundsRef.current.base = computeVisibleBounds(baseImageLoaded);
+  }
+  for (const [k, img] of Object.entries(mouthImagesLoaded)) {
+    if (img && !visibleBoundsRef.current[k]) {
+      visibleBoundsRef.current[k] = computeVisibleBounds(img);
+    }
+  }
+  // Compute mouth group visible bounds from first loaded mouth
+  if (!visibleBoundsRef.current.mouth) {
+    const anyMouth = Object.values(mouthImagesLoaded).find(v => v !== null);
+    if (anyMouth) visibleBoundsRef.current.mouth = computeVisibleBounds(anyMouth);
+  }
+
   animDataRef.current = {
     playbackState, mouthShape, bounceScale, assets, config,
-    baseImageLoaded, mouthImagesLoaded, onMouthOffsetChange,
+    baseImageLoaded, mouthImagesLoaded,
+    transforms, editMode, selectedAsset, onSelectAsset, onEditTransform,
+    visibleBounds: visibleBoundsRef.current,
   };
 
   useEffect(() => {
@@ -74,6 +112,70 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     let prevLyric: LyricLine | null = null;
     let lyricTransition = 1;
     let lyricTimer = 0;
+
+    function getCanvasCenter(width: number, height: number) {
+      return { cx: width * 0.25, cy: height / 2 - 40 };
+    }
+
+    function hitTestAsset(mx: number, my: number, key: string, d: typeof animDataRef.current, cw: number, ch: number): boolean {
+      const center = getCanvasCenter(cw, ch);
+      const vb = d.visibleBounds;
+      const size = getAssetSize(key, d.baseImageLoaded, d.mouthImagesLoaded, d.transforms ?? {}, vb);
+      if (size.w === 0 || size.h === 0) return false;
+      const assetCenter = getAssetCenter(key, center.cx, center.cy, d.config, d.transforms ?? {}, vb, d.baseImageLoaded);
+      const t = d.transforms?.[key] ?? DEFAULT_TRANSFORM;
+      const angle = t.rotation * Math.PI / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      // Rotate mouse point back to local coords
+      const dx = mx - assetCenter.x;
+      const dy = my - assetCenter.y;
+      const localX = dx * cos + dy * sin;
+      const localY = -dx * sin + dy * cos;
+      return Math.abs(localX) <= size.w / 2 && Math.abs(localY) <= size.h / 2;
+    }
+
+    function getHandles(key: string, d: typeof animDataRef.current, cw: number, ch: number): { x: number; y: number; type: 'corner' | 'mid' | 'rotate' }[] | null {
+      const center = getCanvasCenter(cw, ch);
+      const vb = d.visibleBounds;
+      const size = getAssetSize(key, d.baseImageLoaded, d.mouthImagesLoaded, d.transforms ?? {}, vb);
+      if (size.w === 0 || size.h === 0) return null;
+      const assetCenter = getAssetCenter(key, center.cx, center.cy, d.config, d.transforms ?? {}, vb, d.baseImageLoaded);
+      const t = d.transforms?.[key] ?? DEFAULT_TRANSFORM;
+      const angle = t.rotation * Math.PI / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const hw = size.w / 2;
+      const hh = size.h / 2;
+      const corners = [
+        { x: assetCenter.x + cos * (-hw) - sin * (-hh), y: assetCenter.y + sin * (-hw) + cos * (-hh) },
+        { x: assetCenter.x + cos * hw - sin * (-hh), y: assetCenter.y + sin * hw + cos * (-hh) },
+        { x: assetCenter.x + cos * hw - sin * hh, y: assetCenter.y + sin * hw + cos * hh },
+        { x: assetCenter.x + cos * (-hw) - sin * hh, y: assetCenter.y + sin * (-hw) + cos * hh },
+      ];
+      const mids = [
+        { x: (corners[0].x + corners[1].x) / 2, y: (corners[0].y + corners[1].y) / 2 },
+        { x: (corners[1].x + corners[2].x) / 2, y: (corners[1].y + corners[2].y) / 2 },
+        { x: (corners[2].x + corners[3].x) / 2, y: (corners[2].y + corners[3].y) / 2 },
+        { x: (corners[3].x + corners[0].x) / 2, y: (corners[3].y + corners[0].y) / 2 },
+      ];
+      return [
+        ...corners.map(p => ({ ...p, type: 'corner' as const })),
+        ...mids.map(p => ({ ...p, type: 'mid' as const })),
+        { x: mids[0].x, y: mids[0].y - 25, type: 'rotate' as const },
+      ];
+    }
+
+    function getHitHandle(mx: number, my: number, handles: { x: number; y: number; type: string }[]): { index: number; type: string } | null {
+      for (let i = 0; i < handles.length; i++) {
+        const h = handles[i];
+        const r = h.type === 'rotate' ? ROTATE_RADIUS : HANDLE_RADIUS;
+        if (Math.abs(mx - h.x) < r && Math.abs(my - h.y) < r) {
+          return { index: i, type: h.type };
+        }
+      }
+      return null;
+    }
 
     const frame = (now: number) => {
       if (!running) return;
@@ -113,6 +215,10 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
         baseImageLoaded: d.baseImageLoaded,
         prevLyric: null,
         lyricTransition,
+        transforms: d.transforms ?? {},
+        editMode: d.editMode ?? false,
+        selectedAsset: d.selectedAsset ?? null,
+        visibleBounds: d.visibleBounds,
       };
 
       renderFrame(rc);
@@ -125,22 +231,94 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
 
     const onMouseDown = (e: MouseEvent) => {
       const d = animDataRef.current;
-      isDragging.current = true;
-      dragStart.current = { x: e.clientX, y: e.clientY, offsetX: d.config.mouthOffset.x, offsetY: d.config.mouthOffset.y };
-      canvas.style.cursor = 'grabbing';
+      const rect2 = canvas.getBoundingClientRect();
+
+      if (d.editMode) {
+        const mx = e.clientX - rect2.left;
+        const my = e.clientY - rect2.top;
+        const center = getCanvasCenter(rect2.width, rect2.height);
+
+        // Check handles of currently selected asset
+        if (d.selectedAsset && d.onEditTransform) {
+          const handles = getHandles(d.selectedAsset, d, rect2.width, rect2.height);
+          if (handles) {
+            const hit = getHitHandle(mx, my, handles);
+            if (hit) {
+              const currentT = d.transforms?.[d.selectedAsset] ?? { ...DEFAULT_TRANSFORM };
+              const vb = d.visibleBounds;
+              const assetCenter = getAssetCenter(d.selectedAsset, center.cx, center.cy, d.config, d.transforms ?? {}, vb, d.baseImageLoaded);
+              if (hit.type === 'rotate') {
+                editInteraction.current = { type: 'rotate', startX: mx, startY: my, cx: assetCenter.x, cy: assetCenter.y, startT: { ...currentT } };
+                canvas.style.cursor = 'crosshair';
+              } else {
+                editInteraction.current = { type: 'resize', startX: mx, startY: my, cx: assetCenter.x, cy: assetCenter.y, startT: { ...currentT } };
+                canvas.style.cursor = 'nwse-resize';
+              }
+              return;
+            }
+          }
+        }
+
+        // Check asset bodies
+        const assetKeys = d.baseImageLoaded ? ['mouth', 'base'] : [];
+        for (const key of assetKeys) {
+          if (hitTestAsset(mx, my, key, d, rect2.width, rect2.height)) {
+            d.onSelectAsset?.(key);
+            const currentT = d.transforms?.[key] ?? { ...DEFAULT_TRANSFORM };
+            const assetCenter = getAssetCenter(key, center.cx, center.cy, d.config, d.transforms ?? {});
+            editInteraction.current = { type: 'move', startX: mx, startY: my, cx: assetCenter.x, cy: assetCenter.y, startT: { ...currentT } };
+            canvas.style.cursor = 'grabbing';
+            return;
+          }
+        }
+
+        // Click on empty space → deselect
+        d.onSelectAsset?.(null);
+        return;
+      }
+
     };
 
     const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current) return;
-      const dx = e.clientX - dragStart.current.x;
-      const dy = e.clientY - dragStart.current.y;
-      animDataRef.current.onMouthOffsetChange?.({ x: dragStart.current.offsetX + dx, y: dragStart.current.offsetY + dy });
+      const d = animDataRef.current;
+      const rect2 = canvas.getBoundingClientRect();
+
+      if (d.editMode && editInteraction.current && d.selectedAsset && d.onEditTransform) {
+        const mx = e.clientX - rect2.left;
+        const my = e.clientY - rect2.top;
+        const dx = mx - editInteraction.current.startX;
+        const dy = my - editInteraction.current.startY;
+        const ei = editInteraction.current;
+
+        if (ei.type === 'move') {
+          d.onEditTransform(d.selectedAsset, {
+            ...ei.startT,
+            x: ei.startT.x + dx,
+            y: ei.startT.y + dy,
+          });
+        } else if (ei.type === 'resize') {
+          const startDist = Math.hypot(ei.startX - ei.cx, ei.startY - ei.cy);
+          const curDist = Math.hypot(mx - ei.cx, my - ei.cy);
+          if (startDist > 0) {
+            const newScale = ei.startT.scale * (curDist / startDist);
+            d.onEditTransform(d.selectedAsset, { ...ei.startT, scale: Math.max(0.05, newScale) });
+          }
+        } else if (ei.type === 'rotate') {
+          const startAngle = Math.atan2(ei.startY - ei.cy, ei.startX - ei.cx);
+          const curAngle = Math.atan2(my - ei.cy, mx - ei.cx);
+          d.onEditTransform(d.selectedAsset, {
+            ...ei.startT,
+            rotation: ei.startT.rotation + (curAngle - startAngle) * 180 / Math.PI,
+          });
+        }
+      }
     };
 
     const onMouseUp = () => {
-      if (!isDragging.current) return;
-      isDragging.current = false;
-      canvas.style.cursor = 'default';
+      if (editInteraction.current) {
+        editInteraction.current = null;
+        canvas.style.cursor = 'default';
+      }
     };
 
     canvas.addEventListener('mousedown', onMouseDown);
@@ -248,6 +426,7 @@ interface RightPanelProps {
   onFileAnalyze: (result: { bpm: number | null; beats: number[]; mouthPoints: MouthPoint[] }) => void;
   songInfo: { title: string; artist: string; coverUrl: string } | null;
   analyzing?: boolean;
+  editMode?: boolean;
 }
 
 const MOUTH_KEYS: (keyof MouthImages)[] = ['closed', 'A', 'E', 'I', 'O', 'U'];
@@ -266,6 +445,7 @@ export function RightPanel({
   onFileAnalyze,
   songInfo,
   analyzing,
+  editMode,
 }: RightPanelProps) {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -471,14 +651,14 @@ export function RightPanel({
       <div className="asset-section">
         <div className="label">角色素材</div>
         <div className="asset-btns">
-          <label className={`asset-btn ${assets.baseImage ? 'uploaded' : ''}`}>
+          <label className={`asset-btn ${assets.baseImage ? 'uploaded' : ''}`} style={editMode ? { opacity: 0.4, pointerEvents: 'none' } : {}}>
             {assets.baseImage ? '底图 ✓' : '角色底图'}
-            <input type="file" accept="image/png,image/jpeg" onChange={handleBaseImageUpload} />
+            <input type="file" accept="image/png,image/jpeg" onChange={handleBaseImageUpload} disabled={editMode} />
           </label>
           {MOUTH_KEYS.map((key) => (
-              <label key={key} className={`asset-btn ${assets.mouthImages[key] ? 'uploaded' : ''}`}>
+              <label key={key} className={`asset-btn ${assets.mouthImages[key] ? 'uploaded' : ''}`} style={editMode ? { opacity: 0.4, pointerEvents: 'none' } : {}}>
                 {assets.mouthImages[key] ? `${key} ✓` : key}
-                <input type="file" accept="image/png" onChange={handleMouthUpload(key)} />
+                <input type="file" accept="image/png" onChange={handleMouthUpload(key)} disabled={editMode} />
               </label>
             ))}
           </div>

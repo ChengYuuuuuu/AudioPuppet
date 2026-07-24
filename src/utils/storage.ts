@@ -1,10 +1,11 @@
-import { type UIConfig, DEFAULT_UI_CONFIG, type MouthImages } from '../types/index';
+import { type UIConfig, DEFAULT_UI_CONFIG, type MouthImages, type AssetTransform } from '../types/index';
 import { dbGet, dbSet, dbClear as dbClearAll } from './db';
 
 const STORAGE_KEYS = {
   UI_CONFIG: 'lip-sync-ui-config',
   MOUTH_IMAGES: 'lip-sync-mouth-images',
   BASE_IMAGE: 'lip-sync-base-image',
+  ASSET_TRANSFORMS: 'lip-sync-asset-transforms',
 } as const;
 
 export function saveUIConfig(config: Partial<UIConfig>): void {
@@ -50,6 +51,22 @@ export async function saveMouthImages(images: MouthImages): Promise<void> {
 export async function loadMouthImages(): Promise<MouthImages | null> {
   try {
     const data = await dbGet(STORAGE_KEYS.MOUTH_IMAGES);
+    if (data) return JSON.parse(data);
+  } catch {}
+  return null;
+}
+
+export async function saveAssetTransforms(transforms: Record<string, AssetTransform>): Promise<void> {
+  try {
+    await dbSet(STORAGE_KEYS.ASSET_TRANSFORMS, JSON.stringify(transforms));
+  } catch (e) {
+    console.warn('IndexedDB save failed for asset transforms', e);
+  }
+}
+
+export async function loadAssetTransforms(): Promise<Record<string, AssetTransform> | null> {
+  try {
+    const data = await dbGet(STORAGE_KEYS.ASSET_TRANSFORMS);
     if (data) return JSON.parse(data);
   } catch {}
   return null;

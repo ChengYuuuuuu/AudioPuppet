@@ -58,6 +58,15 @@ export interface AudioAnalyserData {
   frequencyData: Uint8Array;
 }
 
+export interface AssetTransform {
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+}
+
+export const DEFAULT_TRANSFORM: AssetTransform = { x: 0, y: 0, scale: 1, rotation: 0 };
+
 export const DEFAULT_MOUTH_OFFSET = { x: 0, y: -60 };
 
 export const DEFAULT_UI_CONFIG: UIConfig = {

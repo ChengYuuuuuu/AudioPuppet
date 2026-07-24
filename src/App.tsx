@@ -3,7 +3,7 @@ import { CanvasPreview, RightPanel, DebugPanel } from './components/Panel';
 import { AudioEngine, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
-import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages } from './utils/storage';
+import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages, loadAssetTransforms, saveAssetTransforms } from './utils/storage';
 import { analyzeSofaUrl } from './utils/sofa';
 import { phonemesToMouthPoints } from './utils/mouthMapper';
 import {
@@ -15,6 +15,7 @@ import {
   type MouthImages,
   type MouthPoint,
   type BounceState,
+  type AssetTransform,
 } from './types/index';
 import './styles/app.css';
 
@@ -62,6 +63,22 @@ export default function App() {
   const [currentBPM, setCurrentBPM] = useState<number | null>(null);
   const [showDebug, setShowDebug] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+
+  const [editMode, setEditMode] = useState(false);
+  const [transforms, setTransforms] = useState<Record<string, AssetTransform>>({});
+  const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadAssetTransforms().then(saved => {
+      if (saved) setTransforms(saved);
+    });
+  }, []);
+
+  const handleConfirmEdit = useCallback(async () => {
+    await saveAssetTransforms(transforms);
+    setEditMode(false);
+    setSelectedAsset(null);
+  }, [transforms]);
 
   const audioEngineRef = useRef<AudioEngine | null>(null);
   const bounceStateRef = useRef<BounceState>({ phase: 'idle', currentBeatIndex: -1, triggerTime: 0, scaleX: 1, scaleY: 1 });
@@ -279,7 +296,24 @@ export default function App() {
                 baseImageLoaded={baseImageLoaded}
                 mouthImagesLoaded={mouthImagesLoaded}
                 onMouthOffsetChange={(offset) => handleConfigChange({ mouthOffset: offset })}
+                transforms={transforms}
+                editMode={editMode}
+                selectedAsset={selectedAsset}
+                onSelectAsset={setSelectedAsset}
+                onEditTransform={(key, t) => setTransforms(prev => ({ ...prev, [key]: t }))}
               />
+              <button
+                className="canvas-edit-btn"
+                onClick={() => {
+                  if (editMode) {
+                    handleConfirmEdit();
+                  } else {
+                    setEditMode(true);
+                  }
+                }}
+              >
+                {editMode ? '确认' : '编辑'}
+              </button>
             </div>
           </div>
         </div>
@@ -298,6 +332,7 @@ export default function App() {
           onWhisperResult={handleWhisperResult}
           onFileAnalyze={handleFileAnalyze}
           analyzing={analyzing}
+          editMode={editMode}
         />
       </div>
 
