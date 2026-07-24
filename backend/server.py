@@ -41,7 +41,11 @@ ckpt_path = os.path.join(script_dir, "sofa_source", "ckpt", "v1.0.0_mandarin_sin
 dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "opencpop-extension.txt")
 ja_dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "japanese-dictionary-compat.txt")
 
-aligner = SofaAligner(ckpt_path, dict_path, ja_dict_path=ja_dict_path)
+en_ckpt_path = os.path.join(script_dir, "sofa_source", "ckpt", "tgm_en_v100.ckpt")
+en_dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "english-dictionary.txt")
+
+aligner = SofaAligner(ckpt_path, dict_path, ja_dict_path=ja_dict_path,
+                      en_ckpt_path=en_ckpt_path, en_dict_path=en_dict_path)
 
 
 def detect_beats(audio: np.ndarray, sr: float) -> tuple:

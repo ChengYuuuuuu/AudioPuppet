@@ -8,4 +8,5 @@ pykakasi
 torch
 onnxruntime
 soundfile
+g2p-en
 numpy

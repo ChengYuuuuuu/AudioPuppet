@@ -25,6 +25,15 @@ const PHONEME_TO_MOUTH: Record<string, MouthShape> = {
   SP: 'closed', AP: 'closed',
 };
 
+const PHONEME_TO_MOUTH_EN: Record<string, MouthShape> = {
+  aa: 'A', ae: 'A', ah: 'E', ao: 'O', ax: 'E',
+  aw: 'A', ay: 'A',
+  eh: 'E', er: 'E', ey: 'E',
+  ih: 'I', iy: 'I',
+  ow: 'O', oy: 'U',
+  uh: 'U', uw: 'U',
+};
+
 function extractVowelFromEnd(s: string): MouthShape | null {
   for (let i = s.length - 1; i >= 0; i--) {
     const ch = s[i].toLowerCase();
@@ -34,6 +43,8 @@ function extractVowelFromEnd(s: string): MouthShape | null {
 }
 
 export function phonemeToMouth(ph: string): MouthShape {
+  const en = PHONEME_TO_MOUTH_EN[ph];
+  if (en) return en;
   const exact = PHONEME_TO_MOUTH[ph];
   if (exact) return exact;
   const vowel = extractVowelFromEnd(ph);
