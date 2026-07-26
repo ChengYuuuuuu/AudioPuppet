@@ -1,4 +1,4 @@
-import { type UIConfig, DEFAULT_UI_CONFIG, type MouthImages, type AssetTransform } from '../types/index';
+import { type UIConfig, DEFAULT_UI_CONFIG, type MouthImages, type EyeImages, type AssetTransform } from '../types/index';
 import { dbGet, dbSet, dbClear as dbClearAll } from './db';
 
 const STORAGE_KEYS = {
@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
   MOUTH_IMAGES: 'lip-sync-mouth-images',
   BASE_IMAGE: 'lip-sync-base-image',
   ASSET_TRANSFORMS: 'lip-sync-asset-transforms',
+  EYE_IMAGES: 'lip-sync-eye-images',
 } as const;
 
 export function saveUIConfig(config: Partial<UIConfig>): void {
@@ -67,6 +68,22 @@ export async function saveAssetTransforms(transforms: Record<string, AssetTransf
 export async function loadAssetTransforms(): Promise<Record<string, AssetTransform> | null> {
   try {
     const data = await dbGet(STORAGE_KEYS.ASSET_TRANSFORMS);
+    if (data) return JSON.parse(data);
+  } catch {}
+  return null;
+}
+
+export async function saveEyeImages(images: EyeImages): Promise<void> {
+  try {
+    await dbSet(STORAGE_KEYS.EYE_IMAGES, JSON.stringify(images));
+  } catch (e) {
+    console.warn('IndexedDB save failed for eye images', e);
+  }
+}
+
+export async function loadEyeImages(): Promise<EyeImages | null> {
+  try {
+    const data = await dbGet(STORAGE_KEYS.EYE_IMAGES);
     if (data) return JSON.parse(data);
   } catch {}
   return null;

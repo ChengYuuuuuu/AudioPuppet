@@ -20,9 +20,14 @@ export interface MouthImages {
   closed: string | null;
 }
 
+export interface EyeImages {
+  blink: string | null;
+}
+
 export interface CharacterAssets {
   baseImage: string | null;
   mouthImages: MouthImages;
+  eyeImages: EyeImages;
 }
 
 export type MouthShape = 'A' | 'E' | 'I' | 'O' | 'U' | 'closed';
@@ -43,6 +48,7 @@ export interface UIConfig {
   bounceIntensity: number;
   lyricOffset: number;
   backgroundColor: string;
+  blinkFrequency: number;
 }
 
 export interface BounceState {
@@ -75,4 +81,5 @@ export const DEFAULT_UI_CONFIG: UIConfig = {
   bounceIntensity: 0.6,
   lyricOffset: 0,
   backgroundColor: '#1a1a2e',
+  blinkFrequency: 30,
 };

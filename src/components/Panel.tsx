@@ -2,6 +2,7 @@ import { useState, useCallback, forwardRef, useEffect, useRef, useLayoutEffect }
 import {
   type CharacterAssets,
   type MouthImages,
+  type EyeImages,
   type UIConfig,
   type PlaybackState,
   type LyricLine,
@@ -13,7 +14,7 @@ import {
 import { parseNeteaseSong } from '../utils/api';
 import { analyzeSofaBlob } from '../utils/sofa';
 import { phonemesToMouthPoints } from '../utils/mouthMapper';
-import { saveBaseImage, saveMouthImages } from '../utils/storage';
+import { saveBaseImage, saveMouthImages, saveEyeImages } from '../utils/storage';
 import { renderFrame, getAssetCenter, getAssetSize, computeVisibleBounds, type VisibleBounds } from '../utils/renderer';
 import { parseLyricText } from '../utils/lyrics';
 import { AudioEngine } from '../utils/audio';
@@ -30,6 +31,8 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     bounceScale,
     baseImageLoaded,
     mouthImagesLoaded,
+    eyeImagesLoaded,
+    isBlinking,
     onMouthOffsetChange,
     transforms,
     editMode,
@@ -44,6 +47,8 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     bounceScale: { scaleX: number; scaleY: number };
     baseImageLoaded: HTMLImageElement | null;
     mouthImagesLoaded: Record<string, HTMLImageElement | null>;
+    eyeImagesLoaded: Record<string, HTMLImageElement | null>;
+    isBlinking: boolean;
     onMouthOffsetChange?: (offset: { x: number; y: number }) => void;
     transforms?: Record<string, AssetTransform>;
     editMode?: boolean;
@@ -63,34 +68,124 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     config: typeof config;
     baseImageLoaded: typeof baseImageLoaded;
     mouthImagesLoaded: typeof mouthImagesLoaded;
+    eyeImagesLoaded: typeof eyeImagesLoaded;
+    isBlinking: typeof isBlinking;
     transforms: typeof transforms;
     editMode: typeof editMode;
     selectedAsset: typeof selectedAsset;
     onSelectAsset: typeof onSelectAsset;
     onEditTransform: typeof onEditTransform;
     visibleBounds: Record<string, VisibleBounds>;
+    lyricRect: { x: number; y: number; w: number; h: number } | null;
   });
 
-  // Compute visible bounds whenever images change
-  if (baseImageLoaded && !visibleBoundsRef.current.base) {
-    visibleBoundsRef.current.base = computeVisibleBounds(baseImageLoaded);
-  }
-  for (const [k, img] of Object.entries(mouthImagesLoaded)) {
-    if (img && !visibleBoundsRef.current[k]) {
-      visibleBoundsRef.current[k] = computeVisibleBounds(img);
+  const lyricRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const renderRequestedRef = useRef(false);
+  const [renderTick, setRenderTick] = useState(0);
+
+  const itemIdRef = useRef(0);
+  const prevLyricRef = useRef<LyricLine | null>(null);
+  const [lyricItems, setLyricItems] = useState<Array<{
+    id: number;
+    original: string;
+    translation: string;
+    level: number;
+    entering: boolean;
+  }>>([]);
+
+  useEffect(() => {
+    const current = playbackState.currentLyric;
+    if (!current || current === prevLyricRef.current) return;
+    prevLyricRef.current = current;
+
+    const { original, translation } = parseLyricText(current.text);
+    const id = ++itemIdRef.current;
+
+    setLyricItems(prev => {
+      const updated = prev
+        .map(item => ({ ...item, level: item.level + 1 }))
+        .filter(item => item.level <= 4);
+      return [...updated, { id, original, translation, level: 0, entering: true }];
+    });
+
+    requestAnimationFrame(() => {
+      setLyricItems(prev =>
+        prev.map(item => item.id === id ? { ...item, entering: false } : item)
+      );
+    });
+  }, [playbackState.currentLyric]);
+
+  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [bottoms, setBottoms] = useState<Record<number, number>>({});
+
+  useLayoutEffect(() => {
+    const sorted = [...lyricItems].sort((a, b) => a.level - b.level);
+    let cum = 0;
+    const newBottoms: Record<number, number> = {};
+    for (const item of sorted) {
+      const el = itemRefs.current.get(item.id);
+      const h = el ? el.offsetHeight : 60;
+      newBottoms[item.id] = cum;
+      cum += h + 20;
     }
-  }
-  // Compute mouth group visible bounds from first loaded mouth
-  if (!visibleBoundsRef.current.mouth) {
-    const anyMouth = Object.values(mouthImagesLoaded).find(v => v !== null);
-    if (anyMouth) visibleBoundsRef.current.mouth = computeVisibleBounds(anyMouth);
+
+    let changed = Object.keys(bottoms).length !== Object.keys(newBottoms).length;
+    if (!changed) {
+      for (const [id, val] of Object.entries(newBottoms)) {
+        if (bottoms[Number(id)] !== val) { changed = true; break; }
+      }
+    }
+
+    if (changed) setBottoms(newBottoms);
+  }, [lyricItems, bottoms]);
+
+  useEffect(() => {
+    if (baseImageLoaded && !visibleBoundsRef.current.base) {
+      visibleBoundsRef.current.base = computeVisibleBounds(baseImageLoaded);
+    }
+    for (const [k, img] of Object.entries(mouthImagesLoaded)) {
+      if (img && !visibleBoundsRef.current[k]) {
+        visibleBoundsRef.current[k] = computeVisibleBounds(img);
+      }
+    }
+    if (!visibleBoundsRef.current.mouth) {
+      const anyMouth = Object.values(mouthImagesLoaded).find(v => v !== null);
+      if (anyMouth) visibleBoundsRef.current.mouth = computeVisibleBounds(anyMouth);
+    }
+  }, [baseImageLoaded, mouthImagesLoaded]);
+
+  useLayoutEffect(() => {
+    const cEl = (ref as React.RefObject<HTMLCanvasElement | null>).current;
+    if (!cEl || itemRefs.current.size === 0) {
+      lyricRectRef.current = null;
+      return;
+    }
+    const cr = cEl.getBoundingClientRect();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const el of itemRefs.current.values()) {
+      const r = el.getBoundingClientRect();
+      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
+      maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom);
+    }
+    if (!isFinite(minX)) {
+      lyricRectRef.current = null;
+      return;
+    }
+    lyricRectRef.current = { x: minX - cr.left, y: minY - cr.top, w: maxX - minX, h: maxY - minY };
+  }, [lyricItems]);
+
+  const shouldRender = playbackState.isPlaying || editMode;
+  if (shouldRender !== renderRequestedRef.current) {
+    renderRequestedRef.current = shouldRender;
+    if (shouldRender) setRenderTick(t => t + 1);
   }
 
   animDataRef.current = {
     playbackState, mouthShape, bounceScale, assets, config,
-    baseImageLoaded, mouthImagesLoaded,
+    baseImageLoaded, mouthImagesLoaded, eyeImagesLoaded, isBlinking,
     transforms, editMode, selectedAsset, onSelectAsset, onEditTransform,
     visibleBounds: visibleBoundsRef.current,
+    lyricRect: lyricRectRef.current,
   };
 
   useEffect(() => {
@@ -177,8 +272,11 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
       return null;
     }
 
+    let animFrameId: number | null = null;
+
     const frame = (now: number) => {
       if (!running) return;
+
       const d = animDataRef.current;
 
       const rect2 = canvas.getBoundingClientRect();
@@ -212,6 +310,8 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
         assets: d.assets,
         config: d.config,
         mouthImagesLoaded: d.mouthImagesLoaded,
+        eyeImagesLoaded: d.eyeImagesLoaded,
+        isBlinking: d.isBlinking,
         baseImageLoaded: d.baseImageLoaded,
         prevLyric: null,
         lyricTransition,
@@ -219,15 +319,20 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
         editMode: d.editMode ?? false,
         selectedAsset: d.selectedAsset ?? null,
         visibleBounds: d.visibleBounds,
+        lyricRect: d.lyricRect,
       };
 
       renderFrame(rc);
       ctx.resetTransform();
 
-      requestAnimationFrame(frame);
+      if (renderRequestedRef.current) {
+        animFrameId = requestAnimationFrame(frame);
+      } else {
+        animFrameId = null;
+      }
     };
 
-    requestAnimationFrame(frame);
+    animFrameId = requestAnimationFrame(frame);
 
     const onMouseDown = (e: MouseEvent) => {
       const d = animDataRef.current;
@@ -238,8 +343,8 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
         const my = e.clientY - rect2.top;
         const center = getCanvasCenter(rect2.width, rect2.height);
 
-        // Check handles of currently selected asset
-        if (d.selectedAsset && d.onEditTransform) {
+        // Check handles of currently selected asset (skip for lyric)
+        if (d.selectedAsset && d.selectedAsset !== 'lyric' && d.onEditTransform) {
           const handles = getHandles(d.selectedAsset, d, rect2.width, rect2.height);
           if (handles) {
             const hit = getHitHandle(mx, my, handles);
@@ -259,13 +364,31 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
           }
         }
 
+        // Check lyric group (highest z-order)
+        const lRect = d.lyricRect;
+        if (lRect && mx >= lRect.x && mx <= lRect.x + lRect.w &&
+            my >= lRect.y && my <= lRect.y + lRect.h) {
+          d.onSelectAsset?.('lyric');
+          animDataRef.current = { ...animDataRef.current, selectedAsset: 'lyric' };
+          const currentT = d.transforms?.lyric ?? { ...DEFAULT_TRANSFORM };
+          editInteraction.current = {
+            type: 'move', startX: mx, startY: my,
+            cx: lRect.x + lRect.w / 2,
+            cy: lRect.y + lRect.h / 2,
+            startT: { ...currentT },
+          };
+          canvas.style.cursor = 'grabbing';
+          return;
+        }
+
         // Check asset bodies
         const assetKeys = d.baseImageLoaded ? ['mouth', 'base'] : [];
         for (const key of assetKeys) {
           if (hitTestAsset(mx, my, key, d, rect2.width, rect2.height)) {
             d.onSelectAsset?.(key);
             const currentT = d.transforms?.[key] ?? { ...DEFAULT_TRANSFORM };
-            const assetCenter = getAssetCenter(key, center.cx, center.cy, d.config, d.transforms ?? {});
+            const vb = d.visibleBounds;
+            const assetCenter = getAssetCenter(key, center.cx, center.cy, d.config, d.transforms ?? {}, vb, d.baseImageLoaded);
             editInteraction.current = { type: 'move', startX: mx, startY: my, cx: assetCenter.x, cy: assetCenter.y, startT: { ...currentT } };
             canvas.style.cursor = 'grabbing';
             return;
@@ -327,73 +450,24 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
 
     return () => {
       running = false;
+      if (animFrameId !== null) cancelAnimationFrame(animFrameId);
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [ref]);
-
-  const itemIdRef = useRef(0);
-  const prevLyricRef = useRef<LyricLine | null>(null);
-  const [lyricItems, setLyricItems] = useState<Array<{
-    id: number;
-    original: string;
-    translation: string;
-    level: number;
-    entering: boolean;
-  }>>([]);
-
-  useEffect(() => {
-    const current = playbackState.currentLyric;
-    if (!current || current === prevLyricRef.current) return;
-    prevLyricRef.current = current;
-
-    const { original, translation } = parseLyricText(current.text);
-    const id = ++itemIdRef.current;
-
-    setLyricItems(prev => {
-      const updated = prev
-        .map(item => ({ ...item, level: item.level + 1 }))
-        .filter(item => item.level <= 4);
-      return [...updated, { id, original, translation, level: 0, entering: true }];
-    });
-
-    requestAnimationFrame(() => {
-      setLyricItems(prev =>
-        prev.map(item => item.id === id ? { ...item, entering: false } : item)
-      );
-    });
-  }, [playbackState.currentLyric]);
-
-  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const [bottoms, setBottoms] = useState<Record<number, number>>({});
-
-  useLayoutEffect(() => {
-    const sorted = [...lyricItems].sort((a, b) => a.level - b.level);
-    let cum = 0;
-    const newBottoms: Record<number, number> = {};
-    for (const item of sorted) {
-      const el = itemRefs.current.get(item.id);
-      const h = el ? el.offsetHeight : 60;
-      newBottoms[item.id] = cum;
-      cum += h + 20;
-    }
-
-    let changed = Object.keys(bottoms).length !== Object.keys(newBottoms).length;
-    if (!changed) {
-      for (const [id, val] of Object.entries(newBottoms)) {
-        if (bottoms[Number(id)] !== val) { changed = true; break; }
-      }
-    }
-
-    if (changed) setBottoms(newBottoms);
-  }, [lyricItems, bottoms]);
+  }, [ref, renderTick, baseImageLoaded, mouthImagesLoaded, eyeImagesLoaded]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <canvas ref={ref as React.Ref<HTMLCanvasElement>} style={{ width: '100%', height: '100%', display: 'block' }} />
       {lyricItems.length > 0 && (
-        <div className="lyric-container">
+        <div
+          className={`lyric-container${editMode ? ' lyric-editable' : ''}${selectedAsset === 'lyric' && editMode ? ' lyric-selected' : ''}`}
+          style={transforms?.lyric ? {
+            transform: `translate(${transforms.lyric.x}px, ${transforms.lyric.y}px) rotate(${transforms.lyric.rotation}deg) scale(${transforms.lyric.scale})`,
+          } : undefined}
+          onClick={editMode ? (e) => { e.stopPropagation(); onSelectAsset?.('lyric'); } : undefined}
+        >
           {lyricItems.map(item => (
             <div
               key={item.id}
@@ -514,6 +588,22 @@ export function RightPanel({
         const newMouthImages = { ...assets.mouthImages, [key]: dataUrl };
         await saveMouthImages(newMouthImages);
         onAssetsChange({ ...assets, mouthImages: newMouthImages });
+      };
+      reader.readAsDataURL(file);
+    },
+    [assets, onAssetsChange]
+  );
+
+  const handleEyeUpload = useCallback(
+    (key: keyof EyeImages) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUrl = reader.result as string;
+        const newEyeImages = { ...assets.eyeImages, [key]: dataUrl };
+        await saveEyeImages(newEyeImages);
+        onAssetsChange({ ...assets, eyeImages: newEyeImages });
       };
       reader.readAsDataURL(file);
     },
@@ -646,6 +736,15 @@ export function RightPanel({
           />
           <span className="val">{config.lyricOffset}</span>
         </div>
+        <div className="slider-row">
+          <label>眨眼频率</label>
+          <input
+            type="range" min="0" max="100" step="1"
+            value={config.blinkFrequency}
+            onChange={(e) => onConfigChange({ blinkFrequency: parseInt(e.target.value) })}
+          />
+          <span className="val">{config.blinkFrequency}%</span>
+        </div>
       </div>
 
       <div className="asset-section">
@@ -661,6 +760,10 @@ export function RightPanel({
                 <input type="file" accept="image/png" onChange={handleMouthUpload(key)} disabled={editMode} />
               </label>
             ))}
+          <label className={`asset-btn ${assets.eyeImages.blink ? 'uploaded' : ''}`} style={editMode ? { opacity: 0.4, pointerEvents: 'none' } : {}}>
+            {assets.eyeImages.blink ? '闭眼图 ✓' : '闭眼图'}
+            <input type="file" accept="image/png" onChange={handleEyeUpload('blink')} disabled={editMode} />
+          </label>
           </div>
         </div>
 
@@ -701,6 +804,7 @@ export function DebugPanel({
   beatTimes, nextBeatIndex, mouthShape, bounceScale, energyHistoryRef, isPlaying,
 }: DebugPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastDrawRef = useRef(0);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -713,6 +817,10 @@ export function DebugPanel({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const now = performance.now();
+    if (now - lastDrawRef.current < 60) return;
+    lastDrawRef.current = now;
 
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth * dpr;

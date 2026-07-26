@@ -3,7 +3,7 @@ import { CanvasPreview, RightPanel, DebugPanel } from './components/Panel';
 import { AudioEngine, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
-import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages, loadAssetTransforms, saveAssetTransforms } from './utils/storage';
+import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages, loadAssetTransforms, saveAssetTransforms, loadEyeImages } from './utils/storage';
 import { analyzeSofaUrl } from './utils/sofa';
 import { phonemesToMouthPoints } from './utils/mouthMapper';
 import {
@@ -16,6 +16,7 @@ import {
   type MouthPoint,
   type BounceState,
   type AssetTransform,
+  type EyeImages,
 } from './types/index';
 import './styles/app.css';
 
@@ -26,14 +27,20 @@ import tetoI from './assets/teto-i.png';
 import tetoO from './assets/teto-o.png';
 import tetoU from './assets/teto-u.png';
 import tetoClosed from './assets/teto-closed.png';
+import tetoBlink from './assets/teto-闭.png';
 
 const defaultMouthImages: MouthImages = {
   A: tetoA, E: tetoE, I: tetoI, O: tetoO, U: tetoU, closed: tetoClosed,
 };
 
+const defaultEyeImages: EyeImages = {
+  blink: tetoBlink,
+};
+
 const defaultAssets: CharacterAssets = {
   baseImage: tetoBase,
   mouthImages: { ...defaultMouthImages },
+  eyeImages: { ...defaultEyeImages },
 };
 
 export default function App() {
@@ -87,10 +94,13 @@ export default function App() {
   const beatTimesRef = useRef<number[]>([]);
   const configRef = useRef(config);
   const energyHistoryRef = useRef<number[]>([]);
+  const blinkTimerRef = useRef<number[]>([]);
   configRef.current = config;
   beatTimesRef.current = beatTimes;
 
   const [baseImageLoaded, setBaseImageLoaded] = useState<HTMLImageElement | null>(null);
+  const [eyeImagesLoaded, setEyeImagesLoaded] = useState<Record<string, HTMLImageElement | null>>({});
+  const [isBlinking, setIsBlinking] = useState(false);
   const [mouthImagesLoaded, setMouthImagesLoaded] = useState<Record<string, HTMLImageElement | null>>({});
 
   useEffect(() => {
@@ -115,6 +125,54 @@ export default function App() {
     loadAll();
   }, [assets.mouthImages]);
 
+  useEffect(() => {
+    const loadAll = async () => {
+      const loaded: Record<string, HTMLImageElement | null> = {};
+      for (const key of ['blink'] as const) {
+        const src = assets.eyeImages[key];
+        if (src) {
+          try { loaded[key] = await loadImage(src); } catch { loaded[key] = null; }
+        } else { loaded[key] = null; }
+      }
+      setEyeImagesLoaded(loaded);
+    };
+    loadAll();
+  }, [assets.eyeImages]);
+
+  // Blink timer
+  useEffect(() => {
+    blinkTimerRef.current.forEach(clearTimeout);
+    blinkTimerRef.current = [];
+    setIsBlinking(false);
+
+    if (config.blinkFrequency <= 0 || !playbackState.isPlaying) return;
+
+    const minInterval = 500;
+    const maxInterval = 10000;
+    const interval = maxInterval - (config.blinkFrequency / 100) * (maxInterval - minInterval);
+
+    const scheduleNext = () => {
+      const actualInterval = interval * (0.5 + Math.random());
+      const t1 = window.setTimeout(() => {
+        setIsBlinking(true);
+        const t2 = window.setTimeout(() => {
+          setIsBlinking(false);
+          scheduleNext();
+        }, 150);
+        blinkTimerRef.current = [t2];
+      }, actualInterval);
+      blinkTimerRef.current = [t1];
+    };
+
+    scheduleNext();
+
+    return () => {
+      blinkTimerRef.current.forEach(clearTimeout);
+      blinkTimerRef.current = [];
+      setIsBlinking(false);
+    };
+  }, [config.blinkFrequency, playbackState.isPlaying]);
+
   const setupAudioEngine = useCallback((engine: AudioEngine, lyricsList: LyricLine[]) => {
     engine.onPlayStateChangeCallback((playing) => {
       setPlaybackState((prev) => ({ ...prev, isPlaying: playing }));
@@ -129,7 +187,9 @@ export default function App() {
         duration: engine.getDuration(),
       }));
 
-      energyHistoryRef.current = [...energyHistoryRef.current.slice(-299), energy];
+      const hist = energyHistoryRef.current;
+      hist.push(energy);
+      if (hist.length > 300) hist.shift();
 
       let mouth: MouthShape | null = null;
       for (const p of whisperTimelineRef.current) {
@@ -256,6 +316,9 @@ export default function App() {
     loadMouthImages().then((saved) => {
       if (saved) setAssets((prev) => ({ ...prev, mouthImages: { ...prev.mouthImages, ...saved } }));
     });
+    loadEyeImages().then((saved) => {
+      if (saved) setAssets((prev) => ({ ...prev, eyeImages: { ...prev.eyeImages, ...saved } }));
+    });
   }, []);
 
   useEffect(() => {
@@ -295,6 +358,8 @@ export default function App() {
                 bounceScale={bounceScale}
                 baseImageLoaded={baseImageLoaded}
                 mouthImagesLoaded={mouthImagesLoaded}
+                eyeImagesLoaded={eyeImagesLoaded}
+                isBlinking={isBlinking}
                 onMouthOffsetChange={(offset) => handleConfigChange({ mouthOffset: offset })}
                 transforms={transforms}
                 editMode={editMode}

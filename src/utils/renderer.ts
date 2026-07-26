@@ -30,14 +30,26 @@ export interface RenderContext {
   editMode: boolean;
   selectedAsset: string | null;
   visibleBounds: Record<string, VisibleBounds>;
+  eyeImagesLoaded: Record<string, HTMLImageElement | null>;
+  isBlinking: boolean;
+  lyricRect: { x: number; y: number; w: number; h: number } | null;
 }
 
+const visibleBoundsCache = new WeakMap<HTMLImageElement, VisibleBounds>();
+
 export function computeVisibleBounds(img: HTMLImageElement): VisibleBounds {
+  const cached = visibleBoundsCache.get(img);
+  if (cached) return cached;
+
   const c = document.createElement('canvas');
   c.width = img.width;
   c.height = img.height;
   const ctx2 = c.getContext('2d');
-  if (!ctx2) return { x: 0, y: 0, w: img.width, h: img.height };
+  if (!ctx2) {
+    const fallback: VisibleBounds = { x: 0, y: 0, w: img.width, h: img.height };
+    visibleBoundsCache.set(img, fallback);
+    return fallback;
+  }
   ctx2.drawImage(img, 0, 0);
   const data = ctx2.getImageData(0, 0, img.width, img.height).data;
   let minX = img.width, minY = img.height, maxX = 0, maxY = 0;
@@ -51,8 +63,11 @@ export function computeVisibleBounds(img: HTMLImageElement): VisibleBounds {
       }
     }
   }
-  if (minX > maxX) return { x: 0, y: 0, w: img.width, h: img.height };
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  const result: VisibleBounds = minX > maxX
+    ? { x: 0, y: 0, w: img.width, h: img.height }
+    : { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  visibleBoundsCache.set(img, result);
+  return result;
 }
 
 export function renderFrame(r: RenderContext): void {
@@ -111,6 +126,19 @@ function drawL3Character(r: RenderContext, cx: number, cy: number): void {
   ctx.scale(baseT.scale, baseT.scale);
   ctx.drawImage(img, -w / 2, -h / 2, w, h);
   ctx.restore();
+
+  // Blink overlay (same position/transform as base)
+  if (r.isBlinking) {
+    const blinkImg = r.eyeImagesLoaded.blink ?? null;
+    if (blinkImg) {
+      ctx.save();
+      ctx.translate(cx + baseT.x, cy + baseT.y);
+      ctx.rotate(baseT.rotation * Math.PI / 180);
+      ctx.scale(baseT.scale, baseT.scale);
+      ctx.drawImage(blinkImg, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+  }
 
   const mouthImg = r.mouthImagesLoaded[r.mouthShape] ?? null;
   if (mouthImg) {
@@ -225,11 +253,23 @@ function drawAssetOverlay(r: RenderContext, cx: number, cy: number): void {
   const key = r.selectedAsset!;
   const t = r.transforms[key] ?? DEFAULT_TRANSFORM;
 
-  const center = getAssetCenter(key, cx, cy, r.config, r.transforms, r.visibleBounds, r.baseImageLoaded ? r.baseImageLoaded : null);
-  const size = getAssetSize(key, r.baseImageLoaded, r.mouthImagesLoaded, r.transforms, r.visibleBounds);
-  if (size.w === 0 || size.h === 0) return;
+  let center: { x: number; y: number };
+  let size: { w: number; h: number };
+  let angle: number;
 
-  const angle = t.rotation * Math.PI / 180;
+  if (key === 'lyric' && r.lyricRect) {
+    center = { x: r.lyricRect.x + r.lyricRect.w / 2, y: r.lyricRect.y + r.lyricRect.h / 2 };
+    size = { w: r.lyricRect.w, h: r.lyricRect.h };
+    angle = t.rotation * Math.PI / 180;
+  } else {
+    const c = getAssetCenter(key, cx, cy, r.config, r.transforms, r.visibleBounds, r.baseImageLoaded ? r.baseImageLoaded : null);
+    const s = getAssetSize(key, r.baseImageLoaded, r.mouthImagesLoaded, r.transforms, r.visibleBounds);
+    if (s.w === 0 || s.h === 0) return;
+    center = c;
+    size = s;
+    angle = t.rotation * Math.PI / 180;
+  }
+
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const hw = size.w / 2;

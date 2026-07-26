@@ -17,7 +17,7 @@ export class AudioEngine {
   private startTime = 0;
   private pauseOffset = 0;
   private duration = 0;
-  private animationId: number | null = null;
+  private _loopTimer: ReturnType<typeof setInterval> | null = null;
   private _frequencyData: Uint8Array | null = null;
   private onFrame: ((data: AudioAnalyserData, currentTime: number) => void) | null = null;
   private onEnded: (() => void) | null = null;
@@ -267,7 +267,8 @@ export class AudioEngine {
   }
 
   private startLoop(): void {
-    const loop = () => {
+    const LOOP_MS = 66;
+    this._loopTimer = setInterval(() => {
       if (!this.isPlaying || !this.analyser || !this.context) return;
 
       const frequencyData = this._frequencyData!;
@@ -279,19 +280,14 @@ export class AudioEngine {
       }
       energy = energy / frequencyData.length;
 
-      const currentTime = this.getCurrentTime();
-
-      this.onFrame?.({ energy, frequencyData }, currentTime);
-
-      this.animationId = requestAnimationFrame(loop);
-    };
-    this.animationId = requestAnimationFrame(loop);
+      this.onFrame?.({ energy, frequencyData }, this.getCurrentTime());
+    }, LOOP_MS);
   }
 
   private stopLoop(): void {
-    if (this.animationId !== null) {
-      cancelAnimationFrame(this.animationId);
-      this.animationId = null;
+    if (this._loopTimer !== null) {
+      clearInterval(this._loopTimer);
+      this._loopTimer = null;
     }
   }
 
