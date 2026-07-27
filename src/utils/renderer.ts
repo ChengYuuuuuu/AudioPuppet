@@ -32,7 +32,6 @@ export interface RenderContext {
   visibleBounds: Record<string, VisibleBounds>;
   eyeImagesLoaded: Record<string, HTMLImageElement | null>;
   isBlinking: boolean;
-  lyricRect: { x: number; y: number; w: number; h: number } | null;
 }
 
 const visibleBoundsCache = new WeakMap<HTMLImageElement, VisibleBounds>();
@@ -253,22 +252,14 @@ function drawAssetOverlay(r: RenderContext, cx: number, cy: number): void {
   const key = r.selectedAsset!;
   const t = r.transforms[key] ?? DEFAULT_TRANSFORM;
 
-  let center: { x: number; y: number };
-  let size: { w: number; h: number };
-  let angle: number;
+  if (key === 'lyric') return;
 
-  if (key === 'lyric' && r.lyricRect) {
-    center = { x: r.lyricRect.x + r.lyricRect.w / 2, y: r.lyricRect.y + r.lyricRect.h / 2 };
-    size = { w: r.lyricRect.w, h: r.lyricRect.h };
-    angle = t.rotation * Math.PI / 180;
-  } else {
-    const c = getAssetCenter(key, cx, cy, r.config, r.transforms, r.visibleBounds, r.baseImageLoaded ? r.baseImageLoaded : null);
-    const s = getAssetSize(key, r.baseImageLoaded, r.mouthImagesLoaded, r.transforms, r.visibleBounds);
-    if (s.w === 0 || s.h === 0) return;
-    center = c;
-    size = s;
-    angle = t.rotation * Math.PI / 180;
-  }
+  const c = getAssetCenter(key, cx, cy, r.config, r.transforms, r.visibleBounds, r.baseImageLoaded ? r.baseImageLoaded : null);
+  const s = getAssetSize(key, r.baseImageLoaded, r.mouthImagesLoaded, r.transforms, r.visibleBounds);
+  if (s.w === 0 || s.h === 0) return;
+  const center = c;
+  const size = s;
+  const angle = t.rotation * Math.PI / 180;
 
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);

@@ -76,10 +76,14 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     onSelectAsset: typeof onSelectAsset;
     onEditTransform: typeof onEditTransform;
     visibleBounds: Record<string, VisibleBounds>;
-    lyricRect: { x: number; y: number; w: number; h: number } | null;
   });
 
-  const lyricRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const selectionInteraction = useRef<{
+    type: 'move' | 'resize' | 'rotate';
+    startX: number; startY: number;
+    startT: AssetTransform;
+    centerX: number; centerY: number;
+  } | null>(null);
   const renderRequestedRef = useRef(false);
   const [renderTick, setRenderTick] = useState(0);
 
@@ -117,6 +121,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
 
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [bottoms, setBottoms] = useState<Record<number, number>>({});
+  const [lyricContentHeight, setLyricContentHeight] = useState(200);
 
   useLayoutEffect(() => {
     const sorted = [...lyricItems].sort((a, b) => a.level - b.level);
@@ -128,6 +133,8 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
       newBottoms[item.id] = cum;
       cum += h + 20;
     }
+
+    setLyricContentHeight(Math.max(cum, 120));
 
     let changed = Object.keys(bottoms).length !== Object.keys(newBottoms).length;
     if (!changed) {
@@ -154,26 +161,6 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     }
   }, [baseImageLoaded, mouthImagesLoaded]);
 
-  useLayoutEffect(() => {
-    const cEl = (ref as React.RefObject<HTMLCanvasElement | null>).current;
-    if (!cEl || itemRefs.current.size === 0) {
-      lyricRectRef.current = null;
-      return;
-    }
-    const cr = cEl.getBoundingClientRect();
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const el of itemRefs.current.values()) {
-      const r = el.getBoundingClientRect();
-      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
-      maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom);
-    }
-    if (!isFinite(minX)) {
-      lyricRectRef.current = null;
-      return;
-    }
-    lyricRectRef.current = { x: minX - cr.left, y: minY - cr.top, w: maxX - minX, h: maxY - minY };
-  }, [lyricItems]);
-
   const shouldRender = playbackState.isPlaying || editMode;
   if (shouldRender !== renderRequestedRef.current) {
     renderRequestedRef.current = shouldRender;
@@ -185,7 +172,6 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     baseImageLoaded, mouthImagesLoaded, eyeImagesLoaded, isBlinking,
     transforms, editMode, selectedAsset, onSelectAsset, onEditTransform,
     visibleBounds: visibleBoundsRef.current,
-    lyricRect: lyricRectRef.current,
   };
 
   useEffect(() => {
@@ -319,7 +305,6 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
         editMode: d.editMode ?? false,
         selectedAsset: d.selectedAsset ?? null,
         visibleBounds: d.visibleBounds,
-        lyricRect: d.lyricRect,
       };
 
       renderFrame(rc);
@@ -343,7 +328,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
         const my = e.clientY - rect2.top;
         const center = getCanvasCenter(rect2.width, rect2.height);
 
-        // Check handles of currently selected asset (skip for lyric)
+        // Check handles of currently selected asset (skip for lyric since it uses HTML handles)
         if (d.selectedAsset && d.selectedAsset !== 'lyric' && d.onEditTransform) {
           const handles = getHandles(d.selectedAsset, d, rect2.width, rect2.height);
           if (handles) {
@@ -362,23 +347,6 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
               return;
             }
           }
-        }
-
-        // Check lyric group (highest z-order)
-        const lRect = d.lyricRect;
-        if (lRect && mx >= lRect.x && mx <= lRect.x + lRect.w &&
-            my >= lRect.y && my <= lRect.y + lRect.h) {
-          d.onSelectAsset?.('lyric');
-          animDataRef.current = { ...animDataRef.current, selectedAsset: 'lyric' };
-          const currentT = d.transforms?.lyric ?? { ...DEFAULT_TRANSFORM };
-          editInteraction.current = {
-            type: 'move', startX: mx, startY: my,
-            cx: lRect.x + lRect.w / 2,
-            cy: lRect.y + lRect.h / 2,
-            startT: { ...currentT },
-          };
-          canvas.style.cursor = 'grabbing';
-          return;
         }
 
         // Check asset bodies
@@ -457,17 +425,100 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     };
   }, [ref, renderTick, baseImageLoaded, mouthImagesLoaded, eyeImagesLoaded]);
 
+  const handleLyricMouseDown = (e: React.MouseEvent) => {
+    if (!editMode) return;
+    e.stopPropagation();
+
+    const currentT = transforms?.lyric ?? { ...DEFAULT_TRANSFORM };
+    selectionInteraction.current = {
+      type: 'move', startX: e.clientX, startY: e.clientY,
+      startT: { ...currentT }, centerX: 0, centerY: 0,
+    };
+
+    if (selectedAsset !== 'lyric') {
+      onSelectAsset?.('lyric');
+    }
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!selectionInteraction.current || !onEditTransform) return;
+      const si = selectionInteraction.current;
+      const dx = ev.clientX - si.startX;
+      const dy = ev.clientY - si.startY;
+      onEditTransform('lyric', { ...si.startT, x: si.startT.x + dx, y: si.startT.y + dy });
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      selectionInteraction.current = null;
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  function handleSelectionHandleMouseDown(type: 'resize' | 'rotate') {
+    return (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const currentT = transforms?.lyric ?? { ...DEFAULT_TRANSFORM };
+      const boxEl = e.currentTarget.parentElement!;
+      const rect = boxEl.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      selectionInteraction.current = { type, startX: e.clientX, startY: e.clientY, startT: { ...currentT }, centerX, centerY };
+
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!selectionInteraction.current || !onEditTransform) return;
+        const si = selectionInteraction.current;
+        if (si.type === 'resize') {
+          const startDist = Math.hypot(si.startX - si.centerX, si.startY - si.centerY);
+          const curDist = Math.hypot(ev.clientX - si.centerX, ev.clientY - si.centerY);
+          if (startDist > 0) {
+            onEditTransform('lyric', { ...si.startT, scale: Math.max(0.05, si.startT.scale * (curDist / startDist)) });
+          }
+        } else if (si.type === 'rotate') {
+          const startAngle = Math.atan2(si.startY - si.centerY, si.startX - si.centerX);
+          const curAngle = Math.atan2(ev.clientY - si.centerY, ev.clientX - si.centerX);
+          onEditTransform('lyric', { ...si.startT, rotation: si.startT.rotation + (curAngle - startAngle) * 180 / Math.PI });
+        }
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        selectionInteraction.current = null;
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <canvas ref={ref as React.Ref<HTMLCanvasElement>} style={{ width: '100%', height: '100%', display: 'block' }} />
       {lyricItems.length > 0 && (
         <div
           className={`lyric-container${editMode ? ' lyric-editable' : ''}${selectedAsset === 'lyric' && editMode ? ' lyric-selected' : ''}`}
-          style={transforms?.lyric ? {
-            transform: `translate(${transforms.lyric.x}px, ${transforms.lyric.y}px) rotate(${transforms.lyric.rotation}deg) scale(${transforms.lyric.scale})`,
-          } : undefined}
-          onClick={editMode ? (e) => { e.stopPropagation(); onSelectAsset?.('lyric'); } : undefined}
+          style={{
+            ...(transforms?.lyric ? {
+              transform: `translate(${transforms.lyric.x}px, ${transforms.lyric.y}px) rotate(${transforms.lyric.rotation}deg) scale(${transforms.lyric.scale})`,
+            } : {}),
+            ...(editMode && selectedAsset === 'lyric' ? { height: lyricContentHeight + 40 } : {}),
+          }}
+          onMouseDown={handleLyricMouseDown}
         >
+          {editMode && selectedAsset === 'lyric' && (
+            <div className="lyric-selection-box">
+              <div className="lyric-handle lyric-handle-tl" onMouseDown={handleSelectionHandleMouseDown('resize')} />
+              <div className="lyric-handle lyric-handle-tr" onMouseDown={handleSelectionHandleMouseDown('resize')} />
+              <div className="lyric-handle lyric-handle-bl" onMouseDown={handleSelectionHandleMouseDown('resize')} />
+              <div className="lyric-handle lyric-handle-br" onMouseDown={handleSelectionHandleMouseDown('resize')} />
+              <div className="lyric-handle-rotate" onMouseDown={handleSelectionHandleMouseDown('rotate')} />
+              <div className="lyric-rotate-line" />
+            </div>
+          )}
           {lyricItems.map(item => (
             <div
               key={item.id}

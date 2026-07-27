@@ -531,6 +531,94 @@ html, body, #root {
   font-weight: 600;
 }
 
+/* ── Lyric Selection Box ── */
+.lyric-selection-box {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  right: -10px;
+  bottom: -10px;
+  border: 2px dashed #007aff;
+  background: rgba(0, 122, 255, 0.06);
+  border-radius: 8px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.lyric-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #007aff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  z-index: 12;
+  pointer-events: auto;
+}
+
+.lyric-handle-tl {
+  top: -6px;
+  left: -6px;
+  cursor: nwse-resize;
+}
+
+.lyric-handle-tr {
+  top: -6px;
+  right: -6px;
+  cursor: nesw-resize;
+}
+
+.lyric-handle-bl {
+  bottom: -6px;
+  left: -6px;
+  cursor: nesw-resize;
+}
+
+.lyric-handle-br {
+  bottom: -6px;
+  right: -6px;
+  cursor: nwse-resize;
+}
+
+.lyric-handle-rotate {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #007aff;
+  cursor: crosshair;
+  z-index: 12;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #007aff;
+  font-size: 14px;
+  line-height: 1;
+  user-select: none;
+}
+
+.lyric-handle-rotate::after {
+  content: '↻';
+}
+
+.lyric-rotate-line {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 16px;
+  background: #007aff;
+  z-index: 11;
+  pointer-events: none;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .right-panel {
