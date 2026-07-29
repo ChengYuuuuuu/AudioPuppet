@@ -1,9 +1,10 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 import tempfile
 import os
+import json
 import logging
 
 import librosa
@@ -13,12 +14,14 @@ import requests
 
 from sofa_aligner import SofaAligner
 from vocal_separator import separate_vocals
+from chunked_processor import ChunkedProcessor
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.FileHandler(os.path.join(os.path.dirname(__file__), 'backend.log'), encoding='utf-8')],
+)
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
-fh = logging.FileHandler(os.path.join(os.path.dirname(__file__), 'backend.log'), encoding='utf-8')
-fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
-log.addHandler(fh)
 log.info(f"librosa 版本: {librosa.__version__}")
 
 app = FastAPI()
@@ -46,6 +49,8 @@ en_dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "english-di
 
 aligner = SofaAligner(ckpt_path, dict_path, ja_dict_path=ja_dict_path,
                       en_ckpt_path=en_ckpt_path, en_dict_path=en_dict_path)
+
+chunked_processor = ChunkedProcessor(aligner)
 
 
 def detect_beats(audio: np.ndarray, sr: float) -> tuple:
@@ -177,6 +182,83 @@ async def analyze(
 
     os.unlink(tmp_path)
     return result
+
+
+@app.post("/analyze-url-chunked")
+async def analyze_url_chunked(req: AnalyzeURLRequest):
+    headers = {}
+    if req.referer:
+        headers["Referer"] = req.referer
+    else:
+        headers["Referer"] = "https://music.163.com"
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            tmp_path = tmp.name
+        resp = requests.get(req.url, headers=headers, timeout=30, stream=True)
+        resp.raise_for_status()
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        log.info(f"音频下载完成: {req.url}")
+    except Exception as exc:
+        err_msg = str(exc)
+        log.error(f"音频下载失败: {err_msg}")
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        async def err_stream():
+            yield f"data: {json.dumps({'type': 'error', 'message': f'音频下载失败: {err_msg}'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+        return StreamingResponse(err_stream(), media_type="text/event-stream")
+
+    async def event_stream():
+        try:
+            async for event in chunked_processor.process_all(tmp_path, req.lyrics_text):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            log.exception("流式处理异常")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/analyze-chunked")
+async def analyze_chunked(
+    audio: UploadFile = File(...),
+    lyrics_text: str = Form(""),
+):
+    suffix = os.path.splitext(audio.filename or "audio.mp3")[1] or ".mp3"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await audio.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    file_size = os.path.getsize(tmp_path)
+    log.info(f"上传文件: {audio.filename}, 大小={file_size} bytes, suffix={suffix}")
+
+    async def event_stream():
+        try:
+            async for event in chunked_processor.process_all(tmp_path, lyrics_text):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            log.exception("流式处理异常")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":

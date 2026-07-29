@@ -31,6 +31,13 @@ export interface CharacterAssets {
 }
 
 export type MouthShape = 'A' | 'E' | 'I' | 'O' | 'U' | 'closed';
+
+export interface MouthPoint {
+  char: string;
+  start: number;
+  end: number;
+  mouth: MouthShape;
+}
 export type RenderMode = 'L3';
 
 export interface PlaybackState {
@@ -74,6 +81,11 @@ export interface AssetTransform {
 export const DEFAULT_TRANSFORM: AssetTransform = { x: 0, y: 0, scale: 1, rotation: 0 };
 
 export const DEFAULT_MOUTH_OFFSET = { x: 0, y: -60 };
+
+export interface TimeRange {
+  start: number;
+  end: number;
+}
 
 export const DEFAULT_UI_CONFIG: UIConfig = {
   renderMode: 'L3',

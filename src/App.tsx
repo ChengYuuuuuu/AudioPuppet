@@ -4,7 +4,7 @@ import { AudioEngine, updateBounce } from './utils/audio';
 import { parseLRC, getCurrentLyric } from './utils/api';
 import { loadImage } from './utils/renderer';
 import { saveUIConfig, loadUIConfig, loadBaseImage, loadMouthImages, loadAssetTransforms, saveAssetTransforms, loadEyeImages } from './utils/storage';
-import { analyzeSofaUrl } from './utils/sofa';
+import { analyzeSofaUrlChunked } from './utils/streamingSofa';
 import { phonemesToMouthPoints } from './utils/mouthMapper';
 import {
   type LyricLine,
@@ -17,6 +17,7 @@ import {
   type BounceState,
   type AssetTransform,
   type EyeImages,
+  type TimeRange,
 } from './types/index';
 import './styles/app.css';
 
@@ -70,6 +71,7 @@ export default function App() {
   const [currentBPM, setCurrentBPM] = useState<number | null>(null);
   const [showDebug, setShowDebug] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+  const [processedRanges, setProcessedRanges] = useState<TimeRange[]>([]);
 
   const [editMode, setEditMode] = useState(false);
   const [transforms, setTransforms] = useState<Record<string, AssetTransform>>({});
@@ -95,6 +97,8 @@ export default function App() {
   const configRef = useRef(config);
   const energyHistoryRef = useRef<number[]>([]);
   const blinkTimerRef = useRef<number[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const receivedChunksRef = useRef<Map<number, MouthPoint[]>>(new Map());
   configRef.current = config;
   beatTimesRef.current = beatTimes;
 
@@ -238,6 +242,9 @@ export default function App() {
       }
 
       if (data.audioUrl) {
+        abortControllerRef.current?.abort();
+        receivedChunksRef.current.clear();
+
         audioEngineRef.current?.destroy();
         const engine = new AudioEngine();
         audioEngineRef.current = engine;
@@ -245,21 +252,34 @@ export default function App() {
         loadAudioToEngine(engine, data.audioUrl);
 
         setAnalyzing(true);
-        analyzeSofaUrl(data.audioUrl, data.lyrics, 'https://music.163.com')
-          .then((result) => {
-            console.log('SOFA 分析结果:', result);
-            if (result.success && result.phonemes) {
-              const points = phonemesToMouthPoints(result.phonemes);
-              console.log('口型点数:', points.length);
-              whisperTimelineRef.current = points;
-            }
-            if (result.bpm && result.beats) {
-              setCurrentBPM(result.bpm);
-              setBeatTimes(result.beats);
-            }
-          })
-          .catch((err) => console.error('SOFA 分析请求失败:', err))
-          .finally(() => setAnalyzing(false));
+        setProcessedRanges([]);
+
+        const controller = analyzeSofaUrlChunked(
+          data.audioUrl, data.lyrics, 'https://music.163.com',
+          {
+            onChunkComplete: (index, chunkData) => {
+              setProcessedRanges(prev => [...prev, { start: chunkData.start!, end: chunkData.end! }]);
+
+              if (!chunkData.success || !chunkData.phonemes) return;
+              const points = phonemesToMouthPoints(chunkData.phonemes);
+              receivedChunksRef.current.set(index, points);
+
+              const all: MouthPoint[] = [];
+              for (const [, pts] of receivedChunksRef.current) {
+                for (const p of pts) all.push(p);
+              }
+              all.sort((a, b) => a.start - b.start);
+              whisperTimelineRef.current = all;
+            },
+            onBpm: (bpm, beats) => {
+              if (bpm) setCurrentBPM(bpm);
+              if (beats.length > 0) setBeatTimes(beats);
+            },
+            onError: (msg) => console.error('流式分析错误:', msg),
+            onComplete: () => setAnalyzing(false),
+          },
+        );
+        abortControllerRef.current = controller;
       }
     },
     [setupAudioEngine, loadAudioToEngine]
@@ -323,6 +343,7 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      abortControllerRef.current?.abort();
       audioEngineRef.current?.destroy();
     };
   }, []);
@@ -398,6 +419,7 @@ export default function App() {
           onFileAnalyze={handleFileAnalyze}
           analyzing={analyzing}
           editMode={editMode}
+          processedRanges={processedRanges}
         />
       </div>
 

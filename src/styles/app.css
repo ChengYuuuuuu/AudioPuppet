@@ -263,6 +263,30 @@ html, body, #root {
   border: none;
 }
 
+.progress-track-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.progress-track-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.progress-done-segment {
+  position: absolute;
+  height: 3px;
+  background: #4A90D9;
+  border-radius: 2px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 /* Play button */
 .play-btn-wrap {
   display: flex;

@@ -60,11 +60,9 @@ class SofaAligner:
         for sep in [' // ', ' / ', '//', '/']:
             idx = clean.find(sep)
             if idx > 0:
-                return clean[:idx].strip()
-        m = re.match(r'^(.+?)[（(]([^）)]+)[）)]\s*$', clean)
-        if m:
-            return m.group(1).strip()
-        return clean.strip()
+                clean = clean[:idx].strip()
+        clean = re.sub(r'[（(][^）)]*[）)]', '', clean).strip()
+        return clean
 
     def _extract_lyrics_text(self, lrc_text: str, lang_filter: str = None) -> str:
         lines = lrc_text.strip().split("\n")
@@ -112,10 +110,15 @@ class SofaAligner:
             result = kks.convert(text)
             hira = "".join(item["hira"] for item in result)
             small = set("ぁぃぅぇぉゃゅょゎっァィゥェォャュョヮッ")
+            tsu_small = set("っッ")
             mora = []
             buf = ""
             for ch in hira:
-                if ch in small:
+                if ch in tsu_small:
+                    if buf:
+                        mora.append(buf)
+                        buf = ""
+                elif ch in small:
                     buf += ch
                 else:
                     if buf:
@@ -270,7 +273,8 @@ class SofaAligner:
         ]
 
         log.info(f"SOFA alignment: {len(phonemes)} phonemes, confidence={confidence:.4f}")
-        return {"success": True, "phonemes": phonemes, "words": words, "confidence": float(confidence)}
+        log.info(f"PHONEMES: {[[p['ph'], round(p['start'], 3), round(p['end'], 3)] for p in phonemes]}")
+        return {"success": True, "phonemes": phonemes, "words": words, "confidence": float(confidence), "processed_text": processed_text}
 
     @torch.no_grad()
     def _infer(self, model, melspec_config, waveform, wav_length,
@@ -311,7 +315,7 @@ class SofaAligner:
                 .squeeze(0).cpu().numpy().astype("float32")
             )
             ph_edge_pred = (
-                (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8
+                (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.0) / 0.8
             ).clamp(0.0, 1.0).squeeze(0).cpu().numpy().astype("float32")
 
             T = ph_prob_log.shape[0]

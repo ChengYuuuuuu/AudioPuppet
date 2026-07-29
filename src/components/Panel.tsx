@@ -9,6 +9,7 @@ import {
   type MouthShape,
   type MouthPoint,
   type AssetTransform,
+  type TimeRange,
   DEFAULT_TRANSFORM,
 } from '../types/index';
 import { parseNeteaseSong } from '../utils/api';
@@ -22,42 +23,33 @@ import { AudioEngine } from '../utils/audio';
 const HANDLE_RADIUS = 8;
 const ROTATE_RADIUS = 10;
 
-export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknown>>(function CanvasPreview(
-  {
-    assets,
-    config,
-    playbackState,
-    mouthShape,
-    bounceScale,
-    baseImageLoaded,
-    mouthImagesLoaded,
-    eyeImagesLoaded,
-    isBlinking,
-    onMouthOffsetChange,
-    transforms,
-    editMode,
-    selectedAsset,
-    onSelectAsset,
-    onEditTransform,
-  }: {
-    assets: CharacterAssets;
-    config: UIConfig;
-    playbackState: PlaybackState;
-    mouthShape: MouthShape;
-    bounceScale: { scaleX: number; scaleY: number };
-    baseImageLoaded: HTMLImageElement | null;
-    mouthImagesLoaded: Record<string, HTMLImageElement | null>;
-    eyeImagesLoaded: Record<string, HTMLImageElement | null>;
-    isBlinking: boolean;
-    onMouthOffsetChange?: (offset: { x: number; y: number }) => void;
-    transforms?: Record<string, AssetTransform>;
-    editMode?: boolean;
-    selectedAsset?: string | null;
-    onSelectAsset?: (key: string | null) => void;
-    onEditTransform?: (key: string, t: AssetTransform) => void;
-  },
+interface CanvasPreviewProps {
+  assets: CharacterAssets;
+  config: UIConfig;
+  playbackState: PlaybackState;
+  mouthShape: MouthShape;
+  bounceScale: { scaleX: number; scaleY: number };
+  baseImageLoaded: HTMLImageElement | null;
+  mouthImagesLoaded: Record<string, HTMLImageElement | null>;
+  eyeImagesLoaded: Record<string, HTMLImageElement | null>;
+  isBlinking: boolean;
+  onMouthOffsetChange?: (offset: { x: number; y: number }) => void;
+  transforms?: Record<string, AssetTransform>;
+  editMode?: boolean;
+  selectedAsset?: string | null;
+  onSelectAsset?: (key: string | null) => void;
+  onEditTransform?: (key: string, t: AssetTransform) => void;
+}
+
+export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(function CanvasPreview(
+  props: CanvasPreviewProps,
   ref
 ) {
+  const {
+    assets, config, playbackState, mouthShape, bounceScale,
+    baseImageLoaded, mouthImagesLoaded, eyeImagesLoaded, isBlinking,
+    transforms, editMode, selectedAsset, onSelectAsset, onEditTransform,
+  } = props;
   const editInteraction = useRef<{ type: 'move' | 'resize' | 'rotate'; startX: number; startY: number; cx: number; cy: number; startT: AssetTransform } | null>(null);
   const visibleBoundsRef = useRef<Record<string, VisibleBounds>>({});
   const animDataRef = useRef({} as {
@@ -144,28 +136,34 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     }
 
     if (changed) setBottoms(newBottoms);
-  }, [lyricItems, bottoms]);
+  }, [lyricItems]);
 
   useEffect(() => {
-    if (baseImageLoaded && !visibleBoundsRef.current.base) {
-      visibleBoundsRef.current.base = computeVisibleBounds(baseImageLoaded);
+    const newBounds: Record<string, VisibleBounds> = {};
+
+    if (baseImageLoaded) {
+      newBounds.base = computeVisibleBounds(baseImageLoaded);
     }
+
     for (const [k, img] of Object.entries(mouthImagesLoaded)) {
-      if (img && !visibleBoundsRef.current[k]) {
-        visibleBoundsRef.current[k] = computeVisibleBounds(img);
+      if (img) {
+        newBounds[k] = computeVisibleBounds(img);
       }
     }
-    if (!visibleBoundsRef.current.mouth) {
-      const anyMouth = Object.values(mouthImagesLoaded).find(v => v !== null);
-      if (anyMouth) visibleBoundsRef.current.mouth = computeVisibleBounds(anyMouth);
-    }
+
+    visibleBoundsRef.current = {
+      ...visibleBoundsRef.current,
+      ...newBounds,
+    };
   }, [baseImageLoaded, mouthImagesLoaded]);
 
-  const shouldRender = playbackState.isPlaying || editMode;
-  if (shouldRender !== renderRequestedRef.current) {
-    renderRequestedRef.current = shouldRender;
-    if (shouldRender) setRenderTick(t => t + 1);
-  }
+  useEffect(() => {
+    const shouldRender = playbackState.isPlaying || editMode;
+    if (shouldRender !== renderRequestedRef.current) {
+      renderRequestedRef.current = shouldRender;
+      if (shouldRender) setRenderTick(t => t + 1);
+    }
+  }, [playbackState.isPlaying, editMode]);
 
   animDataRef.current = {
     playbackState, mouthShape, bounceScale, assets, config,
@@ -320,6 +318,8 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
     animFrameId = requestAnimationFrame(frame);
 
     const onMouseDown = (e: MouseEvent) => {
+      if (editInteraction.current) return;
+
       const d = animDataRef.current;
       const rect2 = canvas.getBoundingClientRect();
 
@@ -422,6 +422,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, Record<string, unknow
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      editInteraction.current = null;
     };
   }, [ref, renderTick, baseImageLoaded, mouthImagesLoaded, eyeImagesLoaded]);
 
@@ -552,6 +553,7 @@ interface RightPanelProps {
   songInfo: { title: string; artist: string; coverUrl: string } | null;
   analyzing?: boolean;
   editMode?: boolean;
+  processedRanges: TimeRange[];
 }
 
 const MOUTH_KEYS: (keyof MouthImages)[] = ['closed', 'A', 'E', 'I', 'O', 'U'];
@@ -571,6 +573,7 @@ export function RightPanel({
   songInfo,
   analyzing,
   editMode,
+  processedRanges,
 }: RightPanelProps) {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -740,17 +743,33 @@ export function RightPanel({
 
       <div className="progress-row">
         <span className="time">{formatTime(dragTime !== null ? dragTime : playbackState.currentTime)}</span>
-        <input
-          type="range"
-          className="progress-bar"
-          min="0"
-          max={playbackState.duration || 1}
-          step="0.1"
-          value={dragTime !== null ? dragTime : playbackState.currentTime}
-          onChange={handleSeekDrag}
-          onMouseUp={handleSeekEnd}
-          onTouchEnd={handleSeekEnd}
-        />
+        <div className="progress-track-wrap">
+          <div className="progress-track-bg">
+            {processedRanges.map((r, i) => {
+              const dur = playbackState.duration || 1;
+              const left = (r.start / dur) * 100;
+              const width = ((r.end - r.start) / dur) * 100;
+              return (
+                <div
+                  key={i}
+                  className="progress-done-segment"
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                />
+              );
+            })}
+          </div>
+          <input
+            type="range"
+            className="progress-bar"
+            min="0"
+            max={playbackState.duration || 1}
+            step="0.1"
+            value={dragTime !== null ? dragTime : playbackState.currentTime}
+            onChange={handleSeekDrag}
+            onMouseUp={handleSeekEnd}
+            onTouchEnd={handleSeekEnd}
+          />
+        </div>
         <span className="time">{formatTime(playbackState.duration)}</span>
       </div>
 
