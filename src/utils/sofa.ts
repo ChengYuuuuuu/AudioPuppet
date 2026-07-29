@@ -15,30 +15,6 @@ interface SofaResult {
   confidence?: number;
 }
 
-export async function analyzeSofaUrl(
-  url: string,
-  lyricsText: string,
-  referer?: string
-): Promise<SofaResult> {
-  try {
-    const res = await fetch(`${SOFA_API}/analyze-url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, lyrics_text: lyricsText, referer }),
-    });
-
-    if (!res.ok) {
-      console.error('SOFA /analyze-url 请求失败:', res.status, res.statusText);
-      return { success: false };
-    }
-
-    return await res.json();
-  } catch (err) {
-    console.error('SOFA /analyze-url 请求失败:', err);
-    return { success: false };
-  }
-}
-
 export async function analyzeSofaBlob(
   blob: Blob,
   lyricsText: string

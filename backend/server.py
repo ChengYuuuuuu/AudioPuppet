@@ -15,6 +15,7 @@ import requests
 from sofa_aligner import SofaAligner
 from vocal_separator import separate_vocals
 from chunked_processor import ChunkedProcessor
+from beats import detect_beats
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,37 +54,9 @@ aligner = SofaAligner(ckpt_path, dict_path, ja_dict_path=ja_dict_path,
 chunked_processor = ChunkedProcessor(aligner)
 
 
-def detect_beats(audio: np.ndarray, sr: float) -> tuple:
-    log.info(f"  detect_beats 输入: shape={audio.shape}, sr={sr}, duration={len(audio)/sr:.2f}s")
-    try:
-        log.debug(f"  beat_track 调用: y.shape={audio.shape}, start_bpm=120, tightness=100")
-        tempo, beat_times = librosa.beat.beat_track(
-            y=audio, sr=sr, units='time',
-            start_bpm=120,
-            tightness=100,
-        )
-        beats_arr = beat_times if hasattr(beat_times, '__len__') else []
-        n_beats = len(beats_arr)
-        log.info(f"  beat_track: tempo={tempo} (type={type(tempo).__name__}), "
-                 f"beat_times type={type(beat_times).__name__}, beats={n_beats}")
-        if n_beats >= 1:
-            bpm_val = None
-            if tempo is not None:
-                try:
-                    t = tempo.item() if hasattr(tempo, 'item') else float(tempo)
-                    if t > 0:
-                        bpm_val = round(t, 1)
-                except (TypeError, ValueError, AttributeError):
-                    pass
-            log.info(f"  beat_track 成功: bpm={bpm_val}, 首拍={beats_arr[0]:.4f}")
-            return bpm_val, [float(t) for t in beats_arr]
-        else:
-            log.warning(f"  beat_track 返回 0 拍: tempo={tempo}")
-    except Exception:
-        log.exception("  beat_track 异常")
-
-    log.warning("节拍检测失败，返回 None, []")
-    return None, []
+def _detect_beats_from_path(audio_path: str):
+    y, sr = librosa.load(audio_path, sr=None, mono=True)
+    return detect_beats(y, sr)
 
 
 def analyze_audio_align(audio_path: str, lyrics_text: str) -> dict:
@@ -111,7 +84,7 @@ def analyze_audio_align(audio_path: str, lyrics_text: str) -> dict:
         max_amp = float(np.max(np.abs(y)))
         rms = float(np.sqrt(np.mean(y**2)))
         log.info(f"音频: sr={sr}, 时长={duration:.2f}s, 样本数={len(y)}, max_amp={max_amp:.4f}, rms={rms:.4f}")
-        bpm, beats = detect_beats(y, sr)
+        bpm, beats = _detect_beats_from_path(audio_path)
         log.info(f"结果: bpm={bpm}, 节拍数={len(beats)}")
     except Exception:
         log.exception("Librosa 分析失败")
@@ -160,7 +133,11 @@ async def analyze_url(req: AnalyzeURLRequest):
     if tmp_path and os.path.exists(tmp_path):
         os.unlink(tmp_path)
 
-    return result
+    return Response(
+        content=json.dumps(result, ensure_ascii=False),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/analyze")
@@ -181,7 +158,11 @@ async def analyze(
     result = analyze_audio_align(tmp_path, lyrics_text)
 
     os.unlink(tmp_path)
-    return result
+    return Response(
+        content=json.dumps(result, ensure_ascii=False),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/analyze-url-chunked")
@@ -227,7 +208,10 @@ async def analyze_url_chunked(req: AnalyzeURLRequest):
                 except Exception:
                     pass
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.post("/analyze-chunked")
@@ -258,7 +242,10 @@ async def analyze_chunked(
             except Exception:
                 pass
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 if __name__ == "__main__":

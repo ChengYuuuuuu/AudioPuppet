@@ -9,6 +9,15 @@ Write-Host "  对口型是不对的 - 一键启动脚本" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Check ports
+$ports = @(8001, 3000, 5173)
+foreach ($port in $ports) {
+    $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    if ($conn) {
+        Write-Host "[WARNING] Port $port is already in use!" -ForegroundColor Yellow
+    }
+}
+
 # Python backend (port 8001)
 Write-Host "[1/3] Starting Python backend (FastAPI) ..." -ForegroundColor Yellow
 $psCmd = "cd '$RootDir\backend'; python server.py"

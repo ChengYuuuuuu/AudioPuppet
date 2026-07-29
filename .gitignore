@@ -25,3 +25,12 @@ dist-ssr
 
 __pycache__/
 *.pyc
+
+venv/
+
+# ML models (too large for git)
+*.onnx
+*.ckpt
+
+# Nested git repo (sofa_source has its own .git)
+backend/sofa_source/

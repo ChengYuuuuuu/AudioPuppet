@@ -684,9 +684,7 @@ export function RightPanel({
     const file = e.target.files?.[0];
     if (!file) return;
     setFileAnalyzing(true);
-    console.log('上传文件:', file.name);
     const result = await analyzeSofaBlob(file, fileLyrics);
-    console.log('SOFA 文件分析结果:', result);
     if (result.success && result.phonemes) {
       const mouthPoints = phonemesToMouthPoints(result.phonemes);
       onWhisperResult(mouthPoints);

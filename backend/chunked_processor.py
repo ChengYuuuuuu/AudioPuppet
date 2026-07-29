@@ -15,7 +15,7 @@ import asyncio
 import tempfile
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import AsyncGenerator, Dict, List, Optional, Tuple
+from typing import AsyncGenerator, Dict, List
 
 import librosa
 import soundfile as sf
@@ -23,6 +23,7 @@ import numpy as np
 
 from sofa_aligner import SofaAligner
 from vocal_separator import separate_vocals
+from beats import detect_beats
 
 log = logging.getLogger(__name__)
 
@@ -180,31 +181,6 @@ class ChunkedProcessor:
                 w["end"] += offset
         return result
 
-    @staticmethod
-    def _detect_bpm(audio_path: str) -> Tuple[Optional[float], List[float]]:
-        try:
-            y, sr = librosa.load(audio_path, sr=None, mono=True)
-            tempo, beat_times = librosa.beat.beat_track(
-                y=y, sr=sr, units="time", start_bpm=120, tightness=100,
-            )
-            beats = (
-                [float(t) for t in beat_times]
-                if hasattr(beat_times, "__len__")
-                else []
-            )
-            bpm = None
-            if tempo is not None:
-                try:
-                    t = tempo.item() if hasattr(tempo, "item") else float(tempo)
-                    if t > 0:
-                        bpm = round(t, 1)
-                except (TypeError, ValueError, AttributeError):
-                    pass
-            return bpm, beats
-        except Exception:
-            log.exception("BPM detection failed")
-            return None, []
-
     # ── Pipeline orchestration ──
 
     async def process_all(
@@ -336,8 +312,7 @@ class ChunkedProcessor:
             except asyncio.CancelledError:
                 pass
 
-        bpm, beats = await loop.run_in_executor(
-            self._executor, self._detect_bpm, audio_path,
-        )
+        y, sr = librosa.load(audio_path, sr=None, mono=True)
+        bpm, beats = detect_beats(y, sr)
         yield {"type": "bpm", "bpm": bpm, "beats": beats}
         yield {"type": "complete"}

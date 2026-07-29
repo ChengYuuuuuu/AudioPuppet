@@ -1,8 +1,6 @@
 import type { MouthShape } from '../types';
 import type { SofaPhoneme } from './sofa';
 
-const VOWEL_PRIORITY = ['a', 'e', 'o', 'i', 'u'];
-
 const PHONEME_TO_MOUTH: Record<string, MouthShape> = {
   a: 'A', ai: 'A', an: 'A', ang: 'A', ao: 'A',
   ia: 'A', ian: 'A', iang: 'A', iao: 'A',
@@ -63,12 +61,3 @@ export function phonemesToMouthPoints(phonemes: SofaPhoneme[]): Array<{
   }));
 }
 
-export function charToMouth(text: string): MouthShape {
-  const lower = text.toLowerCase();
-  for (const v of VOWEL_PRIORITY) {
-    if (lower.includes(v)) {
-      return v.toUpperCase() as MouthShape;
-    }
-  }
-  return 'closed';
-}

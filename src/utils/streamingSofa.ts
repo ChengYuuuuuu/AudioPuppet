@@ -100,36 +100,3 @@ export function analyzeSofaUrlChunked(
   return controller;
 }
 
-export function analyzeSofaBlobChunked(
-  blob: Blob,
-  lyricsText: string,
-  callbacks: StreamingCallbacks,
-): AbortController {
-  const controller = new AbortController();
-
-  const formData = new FormData();
-  formData.append('audio', blob, 'audio.mp3');
-  formData.append('lyrics_text', lyricsText);
-
-  fetch(`${SOFA_API}/analyze-chunked`, {
-    method: 'POST',
-    body: formData,
-    signal: controller.signal,
-  })
-    .then((res) => {
-      if (!res.ok || !res.body) {
-        callbacks.onError?.(`HTTP ${res.status}`);
-        callbacks.onComplete?.();
-        return;
-      }
-      return readSSEStream(res.body.getReader(), callbacks);
-    })
-    .catch((err) => {
-      if (err.name !== 'AbortError') {
-        callbacks.onError?.(err.message);
-        callbacks.onComplete?.();
-      }
-    });
-
-  return controller;
-}

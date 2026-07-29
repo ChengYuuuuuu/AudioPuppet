@@ -7,6 +7,13 @@ echo   对口型是不对的 - 一键启动脚本
 echo ========================================
 echo.
 
+REM Check ports
+netstat -ano | findstr ":8001 " >nul 2>&1
+if %errorlevel% equ 0 echo [WARNING] Port 8001 may already be in use!
+
+netstat -ano | findstr ":3000 " >nul 2>&1
+if %errorlevel% equ 0 echo [WARNING] Port 3000 may already be in use!
+
 REM Python backend (port 8001)
 echo [1/3] Starting Python backend (FastAPI) ...
 start "Backend" /min cmd /c "cd /d "%~dp0backend" && python server.py"

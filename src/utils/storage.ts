@@ -1,5 +1,5 @@
 import { type UIConfig, DEFAULT_UI_CONFIG, type MouthImages, type EyeImages, type AssetTransform } from '../types/index';
-import { dbGet, dbSet, dbClear as dbClearAll } from './db';
+import { dbGet, dbSet } from './db';
 
 const STORAGE_KEYS = {
   UI_CONFIG: 'lip-sync-ui-config',
@@ -89,9 +89,3 @@ export async function loadEyeImages(): Promise<EyeImages | null> {
   return null;
 }
 
-export async function clearAllData(): Promise<void> {
-  Object.values(STORAGE_KEYS).forEach((key) => {
-    try { localStorage.removeItem(key); } catch {}
-  });
-  try { await dbClearAll(); } catch {}
-}
