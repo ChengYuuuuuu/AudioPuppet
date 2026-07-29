@@ -1,4 +1,4 @@
-const SOFA_API = 'http://localhost:8001';
+const SOFA_API = '';
 
 export interface SofaPhoneme {
   ph: string;

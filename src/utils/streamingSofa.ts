@@ -1,6 +1,6 @@
 import type { SofaPhoneme } from './sofa';
 
-const SOFA_API = 'http://localhost:8001';
+const SOFA_API = '';
 
 export interface ChunkEvent {
   type: 'chunk_start' | 'chunk_complete' | 'bpm' | 'error' | 'complete';

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import tempfile
 import os
@@ -248,6 +249,14 @@ async def analyze_chunked(
     )
 
 
+# ── Serve frontend static files (production build in dist/) ──
+dist_dir = os.path.join(script_dir, "..", "dist")
+if os.path.isdir(dist_dir):
+    app.mount("/", StaticFiles(directory=dist_dir, html=True), name="frontend")
+    log.info(f"Frontend static files mounted from {dist_dir}")
+else:
+    log.warning("dist/ not found, frontend will not be served. Run 'npm run build' first.")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=False)
