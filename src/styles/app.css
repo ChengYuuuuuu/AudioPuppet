@@ -158,6 +158,65 @@ html, body, #root {
   margin-top: -6px;
 }
 
+/* Model preload progress */
+.model-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #86868b;
+  font-family: 'Inter', sans-serif;
+}
+
+.model-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #e5e5e5;
+  overflow: hidden;
+}
+
+.model-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: #1d1d1f;
+  transition: width 0.2s ease;
+}
+
+.model-progress-done {
+  font-size: 11px;
+  color: #34c759;
+  font-family: 'Inter', sans-serif;
+}
+
+.model-progress-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #ff3b30;
+  font-family: 'Inter', sans-serif;
+}
+
+.model-retry-btn {
+  padding: 2px 10px;
+  border: none;
+  border-radius: 10px;
+  background: #1d1d1f;
+  color: white;
+  font-size: 10px;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+}
+
+.model-retry-btn:hover {
+  opacity: 0.8;
+}
+
 /* Cover */
 .cover-box {
   width: 100%;

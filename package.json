@@ -13,6 +13,8 @@
     "dev:all": "npx concurrently \"npx NeteaseCloudMusicApi@latest\" \"npx vite\""
   },
   "dependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "pinyin-pro": "^3.28.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
@@ -24,6 +26,7 @@
     "oxlint": "^1.69.0",
     "typescript": "~6.0.2",
     "vite": "^8.1.0",
-    "vite-plugin-compression": "^0.5.1"
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-static-copy": "^4.1.1"
   }
 }

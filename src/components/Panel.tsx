@@ -1,4 +1,4 @@
-import { useState, useCallback, forwardRef, useEffect, useRef, useLayoutEffect } from 'react';
+import { useState, useCallback, forwardRef, useEffect, useRef, useLayoutEffect, useSyncExternalStore } from 'react';
 import {
   type CharacterAssets,
   type MouthImages,
@@ -15,6 +15,8 @@ import {
 import { parseNeteaseSong } from '../utils/api';
 import { analyzeSofaBlob } from '../utils/sofa';
 import { phonemesToMouthPoints } from '../utils/mouthMapper';
+import { getModelLoadState, subscribeModelLoadState, ensureModelsLoaded, testSofaInference, testSofaLongAlignment } from '../utils/streamingSofa';
+import { getAnalysisState, subscribeAnalysisState, type AnalysisStage } from '../utils/client/analysisDiag';
 import { saveBaseImage, saveMouthImages, saveEyeImages } from '../utils/storage';
 import { renderFrame, getAssetCenter, getAssetSize, computeVisibleBounds, type VisibleBounds } from '../utils/renderer';
 import { parseLyricText } from '../utils/lyrics';
@@ -558,6 +560,13 @@ interface RightPanelProps {
 
 const MOUTH_KEYS: (keyof MouthImages)[] = ['closed', 'A', 'E', 'I', 'O', 'U'];
 
+const STAGE_LABELS: Record<AnalysisStage, string> = {
+  audio: '下载音频',
+  g2p: '文本转音素',
+  infer: '模型推理',
+  decode: '解码',
+};
+
 export function RightPanel({
   audioEngine,
   playbackState,
@@ -579,6 +588,8 @@ export function RightPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dragTime, setDragTime] = useState<number | null>(null);
+  const modelLoadState = useSyncExternalStore(subscribeModelLoadState, getModelLoadState);
+  const analysisState = useSyncExternalStore(subscribeAnalysisState, getAnalysisState);
 
   const handleParse = useCallback(async () => {
     if (!url.trim()) return;
@@ -718,6 +729,59 @@ export function RightPanel({
         </button>
       </div>
       {error && <div className="error-text">{error}</div>}
+
+      {modelLoadState.status === 'loading' && (
+        <div className="model-progress">
+          <div className="model-progress-label">
+            <span>{modelLoadState.label === 'SOFA' ? 'SOFA 对齐模型' : '人声分离模型'}</span>
+            <span>
+              {modelLoadState.total > 0 ? Math.round((modelLoadState.loaded / modelLoadState.total) * 100) : 0}% ·{' '}
+              {(modelLoadState.loaded / 1048576).toFixed(1)} / {(modelLoadState.total / 1048576).toFixed(1)} MB
+            </span>
+          </div>
+          <div className="model-progress-track">
+            <div
+              className="model-progress-fill"
+              style={{
+                width: `${modelLoadState.total > 0 ? Math.min(100, (modelLoadState.loaded / modelLoadState.total) * 100) : 0}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {modelLoadState.status === 'done' && <div className="model-progress-done">模型已加载 ✓</div>}
+      {modelLoadState.status === 'error' && (
+        <div className="model-progress-error">
+          <span>模型加载失败：{modelLoadState.message}</span>
+          <button
+            className="model-retry-btn"
+            onClick={() => {
+              ensureModelsLoaded().catch(() => {});
+            }}
+          >
+            重试
+          </button>
+        </div>
+      )}
+
+      {analysisState.status === 'running' && (
+        <div className="model-progress">
+          <div className="model-progress-label">
+            <span>分析中… {STAGE_LABELS[analysisState.stage]}</span>
+            {analysisState.chunkIndex !== undefined && <span>#chunk {analysisState.chunkIndex}</span>}
+          </div>
+          <div className="model-progress-track">
+            <div className="model-progress-fill" style={{ width: '35%' }} />
+          </div>
+        </div>
+      )}
+      {analysisState.status === 'error' && (
+        <div className="model-progress-error">
+          <span>
+            分析失败（{analysisState.stage ? STAGE_LABELS[analysisState.stage] : '?'}）：{analysisState.message}
+          </span>
+        </div>
+      )}
 
       <div className="cover-box">
         {songInfo?.coverUrl ? (
@@ -873,6 +937,36 @@ export function DebugPanel({
 }: DebugPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastDrawRef = useRef(0);
+  const [testResult, setTestResult] = useState('');
+  const [testRunning, setTestRunning] = useState(false);
+  const [longResult, setLongResult] = useState('');
+  const [longRunning, setLongRunning] = useState(false);
+
+  const handleTestSofa = async () => {
+    setTestRunning(true);
+    setTestResult('运行中…（需先加载模型）');
+    try {
+      const r = await testSofaInference();
+      setTestResult(`OK: ${r.ms.toFixed(0)}ms，${r.frames} 帧`);
+    } catch (err: any) {
+      setTestResult(`失败: ${err?.message ?? String(err)}`);
+    } finally {
+      setTestRunning(false);
+    }
+  };
+
+  const handleTestLong = async () => {
+    setLongRunning(true);
+    setLongResult('运行中…');
+    try {
+      const r = await testSofaLongAlignment();
+      setLongResult(`OK: ${r.ms.toFixed(0)}ms 音素${r.phonemeCount} 均${r.meanDur.toFixed(3)}s >5s=${r.gt5} edge均=${r.edgeMean.toFixed(4)} <0.1=${(r.edgeLt01 * 100).toFixed(1)}% ${r.seq}`);
+    } catch (err: any) {
+      setLongResult(`失败: ${err?.message ?? String(err)}`);
+    } finally {
+      setLongRunning(false);
+    }
+  };
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -999,6 +1093,30 @@ export function DebugPanel({
           {bounceScale.scaleY < 0.98 ? '压缩' : '静止'}
         </b></span>
         <span>节拍索引: <b style={{ color: '#c9d1d9' }}>{nextBeatIndex}/{beatCount}</b></span>
+        <button
+          onClick={handleTestSofa}
+          disabled={testRunning}
+          style={{
+            background: '#21262d', color: '#c9d1d9', border: '1px solid #30363d',
+            borderRadius: 4, padding: '1px 8px', cursor: 'pointer',
+            fontFamily: 'monospace', fontSize: 11,
+          }}
+        >
+          测试SOFA推理
+        </button>
+        <span style={{ color: testResult.startsWith('失败') ? '#f85149' : '#3fb950' }}>{testResult}</span>
+        <button
+          onClick={handleTestLong}
+          disabled={longRunning}
+          style={{
+            background: '#21262d', color: '#c9d1d9', border: '1px solid #30363d',
+            borderRadius: 4, padding: '1px 8px', cursor: 'pointer',
+            fontFamily: 'monospace', fontSize: 11,
+          }}
+        >
+          测试长对齐
+        </button>
+        <span style={{ color: longResult.startsWith('失败') ? '#f85149' : '#ffa657' }}>{longResult}</span>
       </div>
     </div>
   );

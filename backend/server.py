@@ -41,6 +41,12 @@ class AnalyzeURLRequest(BaseModel):
     lyrics_text: str = ""
 
 
+class AlignmentLogRequest(BaseModel):
+    chunk_index: int
+    offset: float = 0.0
+    phonemes: list[dict] = []
+
+
 script_dir = os.path.dirname(__file__)
 ckpt_path = os.path.join(script_dir, "sofa_source", "ckpt", "v1.0.0_mandarin_singing.ckpt")
 dict_path = os.path.join(script_dir, "sofa_source", "dictionary", "opencpop-extension.txt")
@@ -103,6 +109,16 @@ def analyze_audio_align(audio_path: str, lyrics_text: str) -> dict:
 @app.options("/analyze-url")
 async def analyze_url_options():
     return Response(status_code=200)
+
+
+@app.post("/log-alignment")
+async def log_alignment(req: AlignmentLogRequest):
+    items = [
+        [p.get("ph", ""), round(float(p.get("start", 0)), 3), round(float(p.get("end", 0)), 3)]
+        for p in req.phonemes
+    ]
+    log.info(f"LOCAL PHONEMES chunk {req.chunk_index} [{req.offset:.2f}s]: {items}")
+    return {"ok": True}
 
 
 @app.post("/analyze-url")

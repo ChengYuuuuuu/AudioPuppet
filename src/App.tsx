@@ -99,6 +99,7 @@ export default function App() {
   const blinkTimerRef = useRef<number[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const receivedChunksRef = useRef<Map<number, MouthPoint[]>>(new Map());
+  const lastSyncLogRef = useRef(-1);
   configRef.current = config;
   beatTimesRef.current = beatTimes;
 
@@ -204,6 +205,13 @@ export default function App() {
       }
       setMouthShape(mouth ?? 'closed');
 
+      if (currentTime - lastSyncLogRef.current >= 2) {
+        lastSyncLogRef.current = currentTime;
+        console.log(
+          `[sync] t=${currentTime.toFixed(2)}s 口型=${mouth ?? 'closed'} 点=${whisperTimelineRef.current.length}`
+        );
+      }
+
       const c = configRef.current;
       bounceStateRef.current = updateBounce(bounceStateRef.current, currentTime, beatTimesRef.current, c.bounceIntensity);
       setBounceScale({
@@ -262,6 +270,9 @@ export default function App() {
 
               if (!chunkData.success || !chunkData.phonemes) return;
               const points = phonemesToMouthPoints(chunkData.phonemes);
+              console.log(
+                `[sync] chunk ${index}: ${points.length} 点 [${points[0]?.start ?? '-'} - ${points[points.length - 1]?.end ?? '-'}]s`
+              );
               receivedChunksRef.current.set(index, points);
 
               const all: MouthPoint[] = [];

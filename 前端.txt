@@ -13,6 +13,7 @@ ONNX 模型已经内嵌了 mel 提取，meljs 用不上。以下是完整计划�
 阶段 2：核心算法移植（3-4 天）
 #	任务	说明
 2.1	Viterbi 解码器 → 手写 JS	onnx_infer.py:64-121 的 Numba JIT forward_pass，约 60 行
+（手写 Viterbi 算法确实工作量不小，但你不是从零开始。GitHub 上已经有成熟的 JavaScript 实现。你可以直接参考 algorithms-js 库里的 viterbi 函数，它的接口清晰，支持自定义状态、观测和概率矩阵。你只需要将 SOFA 模型输出的 logits 和转移概率矩阵适配进去，能省下 1-2 天调试基础算法的时间。）
 2.2	解码 + 回溯 → 手写 JS	onnx_infer.py:125-186 的 decode 函数
 2.3	后处理 → 手写 JS	fill_small_gaps() + add_SP()，纯逻辑
 2.4	G2P 三语种 → 移植 JS	中文(pypinyin → 字典查表)、日文(pykakasi → 字典)、英文(g2p-en → 映射表)
@@ -21,6 +22,8 @@ ONNX 模型已经内嵌了 mel 提取，meljs 用不上。以下是完整计划�
 3.1	音频下载模块	fetch + Web Audio API 解码
 3.2	分块处理管道	仿 chunked_processor.py，Worker 流水线
 3.3	节拍检测	移植 librosa beat_track 算法或找 JS 替代
+(Pleco-Xa
+它把 librosa.beat.beat_track 完整移植到了 JavaScript，接口几乎一模一样。)
 3.4	替换 streamingSofa.ts	从调后端 API 改为调本地 Worker 管道
 阶段 4：收尾（1 天）
 #	任务
