@@ -289,6 +289,7 @@ export default function App() {
             onError: (msg) => console.error('流式分析错误:', msg),
             onComplete: () => setAnalyzing(false),
           },
+          configRef.current.vocalSeparation,
         );
         abortControllerRef.current = controller;
       }

@@ -1,4 +1,4 @@
-export type AnalysisStage = 'audio' | 'g2p' | 'infer' | 'decode';
+export type AnalysisStage = 'audio' | 'separate' | 'g2p' | 'infer' | 'decode';
 
 export type AnalysisState =
   | { status: 'idle' }

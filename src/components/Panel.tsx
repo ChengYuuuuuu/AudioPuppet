@@ -562,6 +562,7 @@ const MOUTH_KEYS: (keyof MouthImages)[] = ['closed', 'A', 'E', 'I', 'O', 'U'];
 
 const STAGE_LABELS: Record<AnalysisStage, string> = {
   audio: '下载音频',
+  separate: '人声分离',
   g2p: '文本转音素',
   infer: '模型推理',
   decode: '解码',
@@ -876,6 +877,17 @@ export function RightPanel({
             onChange={(e) => onConfigChange({ blinkFrequency: parseInt(e.target.value) })}
           />
           <span className="val">{config.blinkFrequency}%</span>
+        </div>
+        <div className="slider-row">
+          <label>增强</label>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={config.vocalSeparation}
+              onChange={(e) => onConfigChange({ vocalSeparation: e.target.checked })}
+            />
+            <span>{config.vocalSeparation ? '人声分离 ✓' : '人声分离'}</span>
+          </label>
         </div>
       </div>
 

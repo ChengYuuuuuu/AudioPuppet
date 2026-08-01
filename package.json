@@ -13,6 +13,7 @@
     "dev:all": "npx concurrently \"npx NeteaseCloudMusicApi@latest\" \"npx vite\""
   },
   "dependencies": {
+    "demucs-web": "^1.0.2",
     "onnxruntime-web": "^1.27.0",
     "pinyin-pro": "^3.28.2",
     "react": "^19.2.7",

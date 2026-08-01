@@ -431,6 +431,29 @@ html, body, #root {
   text-align: right;
 }
 
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  min-width: 0;
+  flex: 1;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #1d1d1f;
+  cursor: pointer;
+}
+
+.toggle-row span {
+  font-size: 10px;
+  color: #1d1d1f;
+  font-family: 'Inter', sans-serif;
+  white-space: nowrap;
+}
+
 /* Asset buttons (black pill) */
 .asset-section {
   display: flex;

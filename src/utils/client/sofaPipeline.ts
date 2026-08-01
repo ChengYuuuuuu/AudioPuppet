@@ -1,7 +1,8 @@
 import type { SofaPhoneme } from '../sofa';
 import type { ChunkEvent, StreamingCallbacks } from '../streamingSofa';
 import { downloadAndDecodeAudio, audioBufferToFloat32 } from './audioDecoder';
-import { loadSofaModel, runSofaInference, SOFA_MODEL_SIZE } from './onnxLoader';
+import { loadSofaModel, runSofaInference, SOFA_MODEL_SIZE, DEMUCS_MODEL_SIZE } from './onnxLoader';
+import { loadDemucs, separateVocals, disposeDemucs } from './demucs';
 import { decodePhonemes, edgePredStats } from './viterbi';
 import { detectBeats } from './beatDetector';
 import { lyricsToPhonemes } from './g2p';
@@ -9,7 +10,7 @@ import { setAnalysisState, type AnalysisStage } from './analysisDiag';
 
 const SOFA_MODEL_PATH = '/models/sofa_mandarin_simplified.onnx';
 
-export const TOTAL_MODEL_SIZE = SOFA_MODEL_SIZE;
+export const TOTAL_MODEL_SIZE = SOFA_MODEL_SIZE + DEMUCS_MODEL_SIZE;
 
 export interface ModelProgress {
   loaded: number;
@@ -21,10 +22,11 @@ const FRAME_LENGTH = 512 / (44100 * 4);
 
 interface PipelineState {
   modelLoaded: boolean;
+  demucsLoaded: boolean;
   sofaSession: Awaited<ReturnType<typeof loadSofaModel>> | null;
 }
 
-let state: PipelineState = { modelLoaded: false, sofaSession: null };
+let state: PipelineState = { modelLoaded: false, demucsLoaded: false, sofaSession: null };
 let currentStage: AnalysisStage = 'audio';
 
 function setStage(stage: AnalysisStage): void {
@@ -36,12 +38,24 @@ export function getSofaSession(): Awaited<ReturnType<typeof loadSofaModel>> | nu
   return state.sofaSession;
 }
 
-export async function loadModels(onProgress?: (progress: ModelProgress) => void): Promise<void> {
-  if (state.modelLoaded) return;
-  state.sofaSession = await loadSofaModel(SOFA_MODEL_PATH, (loaded, total) =>
-    onProgress?.({ loaded, total, label: 'SOFA' })
-  );
+export async function loadModels(
+  onProgress?: (progress: ModelProgress) => void,
+  useVocalSeparation = false,
+): Promise<void> {
+  const total = useVocalSeparation ? TOTAL_MODEL_SIZE : SOFA_MODEL_SIZE;
+  if (!state.sofaSession) {
+    state.sofaSession = await loadSofaModel(SOFA_MODEL_PATH, (loaded, _t) =>
+      onProgress?.({ loaded, total, label: 'SOFA' })
+    );
+  }
   state.modelLoaded = true;
+
+  if (useVocalSeparation && !state.demucsLoaded) {
+    await loadDemucs((loaded, _t) =>
+      onProgress?.({ loaded: SOFA_MODEL_SIZE + loaded, total, label: 'Demucs' })
+    );
+    state.demucsLoaded = true;
+  }
 }
 
 function extractChunksFromLRC(
@@ -108,13 +122,20 @@ async function processChunk(
   chunkIndex: number,
   offset: number,
   callbacks: StreamingCallbacks,
+  useVocalSeparation = false,
 ): Promise<void> {
   setStage('g2p');
   const g2pResult = await lyricsToPhonemes(lyricsText);
   console.log(`[g2p] chunk ${chunkIndex}: ${g2pResult.ph_seq.length} phones, seq=${g2pResult.ph_seq.join(' ')}`);
 
-  const waveform = new Float32Array(audio.length);
-  waveform.set(audio);
+  let feed = audio;
+  if (useVocalSeparation) {
+    setStage('separate');
+    feed = await separateVocals(audio);
+  }
+
+  const waveform = new Float32Array(feed.length);
+  waveform.set(feed);
 
   const paddedLen = Math.ceil(waveform.length / 512) * 512;
   const padded = new Float32Array(paddedLen);
@@ -170,6 +191,7 @@ export async function runPipeline(
   audioUrl: string,
   lyricsText: string,
   callbacks: StreamingCallbacks,
+  useVocalSeparation = false,
 ): Promise<AbortController> {
   const controller = new AbortController();
 
@@ -186,14 +208,14 @@ export async function runPipeline(
     const chunks = extractChunksFromLRC(lyricsText, audio.length / 44100);
 
     if (chunks.length === 0) {
-      await processChunk(audio, 44100, lyricsText, 0, 0, callbacks);
+      await processChunk(audio, 44100, lyricsText, 0, 0, callbacks, useVocalSeparation);
     } else {
       for (let i = 0; i < chunks.length; i++) {
         if (controller.signal.aborted) break;
         const chunkStart = Math.floor(chunks[i].start * 44100);
         const chunkEnd = Math.min(Math.ceil(chunks[i].end * 44100), audio.length);
         const chunkAudio = audio.slice(chunkStart, chunkEnd);
-        await processChunk(chunkAudio, 44100, chunks[i].text, i, chunks[i].start, callbacks);
+        await processChunk(chunkAudio, 44100, chunks[i].text, i, chunks[i].start, callbacks, useVocalSeparation);
       }
     }
 
@@ -220,5 +242,7 @@ export async function runPipeline(
 
 export function disposePipeline(): void {
   state.modelLoaded = false;
+  state.demucsLoaded = false;
   state.sofaSession = null;
+  disposeDemucs();
 }

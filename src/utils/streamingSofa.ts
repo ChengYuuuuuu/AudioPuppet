@@ -62,9 +62,12 @@ function progressHandler(progress: ModelProgress): void {
   });
 }
 
-export function ensureModelsLoaded(onProgress?: (progress: ModelProgress) => void): Promise<void> {
+export function ensureModelsLoaded(
+  onProgress?: (progress: ModelProgress) => void,
+  useVocalSeparation = false,
+): Promise<void> {
   if (!loadingPromise) {
-    loadingPromise = loadModels(onProgress ?? progressHandler)
+    loadingPromise = loadModels(onProgress ?? progressHandler, useVocalSeparation)
       .then(() => setModelLoadState({ status: 'done' }))
       .catch((err) => {
         setModelLoadState({ status: 'error', message: err?.message ?? String(err) });
@@ -82,13 +85,14 @@ export function analyzeSofaUrlChunked(
   lyricsText: string,
   _referer: string | undefined,
   callbacks: StreamingCallbacks,
+  useVocalSeparation = false,
 ): AbortController {
   const controller = new AbortController();
 
   const start = async () => {
-    await ensureModelsLoaded();
+    await ensureModelsLoaded(undefined, useVocalSeparation);
     if (controller.signal.aborted) return;
-    await runPipeline(url, lyricsText, callbacks);
+    await runPipeline(url, lyricsText, callbacks, useVocalSeparation);
   };
 
   start().catch((err) => {

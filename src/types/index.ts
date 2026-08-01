@@ -56,6 +56,7 @@ export interface UIConfig {
   lyricOffset: number;
   backgroundColor: string;
   blinkFrequency: number;
+  vocalSeparation: boolean;
 }
 
 export interface BounceState {
@@ -94,4 +95,5 @@ export const DEFAULT_UI_CONFIG: UIConfig = {
   lyricOffset: 0,
   backgroundColor: '#1a1a2e',
   blinkFrequency: 30,
+  vocalSeparation: false,
 };
