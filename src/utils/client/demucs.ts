@@ -31,9 +31,14 @@ export async function separateVocals(audio: Float32Array): Promise<Float32Array>
   const v = result.vocals;
   const n = Math.min(v.left.length, audio.length);
   const mono = new Float32Array(n);
+  let nan = 0;
   for (let i = 0; i < n; i++) {
-    mono[i] = (v.left[i] + v.right[i]) / 2;
+    const a = Number.isFinite(v.left[i]) ? v.left[i] : 0;
+    const b = Number.isFinite(v.right[i]) ? v.right[i] : 0;
+    if (!Number.isFinite(v.left[i]) || !Number.isFinite(v.right[i])) nan++;
+    mono[i] = (a + b) / 2;
   }
+  if (nan > 0) console.warn(`[demucs] 分离输出含 ${nan} 个非有限值，已置 0`);
   return mono;
 }
 

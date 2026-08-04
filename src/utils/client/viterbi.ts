@@ -36,6 +36,10 @@ function forwardPass(
       if (prob2 > maxVal) { maxVal = prob2; maxIdx = 1; }
       if (prob3 > maxVal) { maxVal = prob3; maxIdx = 2; }
 
+      if (!Number.isFinite(maxVal)) {
+        maxVal = -Infinity;
+      }
+
       dp[tOffset + s] = maxVal;
       backtrackS[tOffset + s] = maxIdx;
     }
@@ -73,15 +77,19 @@ export function decode(
     const tOffProb = t * vocabSize;
     const tOff = t * S;
     for (let s = 0; s < S; s++) {
-      probLog[tOff + s] = phProbLog[tOffProb + phSeqId[s]];
+      const val = phProbLog[tOffProb + phSeqId[s]];
+      probLog[tOff + s] = Number.isFinite(val) ? val : -1e9;
     }
   }
 
   const edgeProbLog = new Float64Array(T);
   const notEdgeProbLog = new Float64Array(T);
   for (let t = 0; t < T; t++) {
-    edgeProbLog[t] = Math.log(edgeProb[t] + 1e-6);
-    notEdgeProbLog[t] = Math.log(1 - edgeProb[t] + 1e-6);
+    const e = Number.isFinite(edgeProb[t] as number)
+      ? Math.max(0, Math.min(1, edgeProb[t] as number))
+      : 0.5;
+    edgeProbLog[t] = Math.log(e + 1e-6);
+    notEdgeProbLog[t] = Math.log(1 - e + 1e-6);
   }
 
   const currPhMaxProbLog = new Float64Array(S);
@@ -135,7 +143,8 @@ export function decode(
   const confArr = new Float64Array(frameConfidence.length);
   confArr[0] = 0;
   for (let i = 1; i < frameConfidence.length; i++) {
-    confArr[i] = Math.exp(frameConfidence[i] - frameConfidence[i - 1]);
+    const d = frameConfidence[i] - frameConfidence[i - 1];
+    confArr[i] = Number.isFinite(d) ? Math.exp(d) : 0;
   }
 
   return {
@@ -145,19 +154,25 @@ export function decode(
   };
 }
 
-export function edgePredStats(edgeLogits: Float32Array): { mean: number; max: number; lt01: number } {
+export function edgePredStats(edgeLogits: Float32Array): { mean: number; max: number; lt01: number; nan: number } {
   let sum = 0;
   let lt = 0;
   let mx = 0;
+  let nan = 0;
   const n = edgeLogits.length;
   for (let i = 0; i < n; i++) {
-    const sig = 1 / (1 + Math.exp(-(edgeLogits[i] as number)));
+    const raw = edgeLogits[i] as number;
+    if (!Number.isFinite(raw)) {
+      nan++;
+      continue;
+    }
+    const sig = 1 / (1 + Math.exp(-raw));
     const pred = Math.max(0, Math.min(1, sig / 0.8));
     sum += pred;
     if (pred < 0.1) lt++;
     if (pred > mx) mx = pred;
   }
-  return { mean: n > 0 ? sum / n : 0, max: mx, lt01: n > 0 ? lt / n : 0 };
+  return { mean: n > 0 ? sum / n : 0, max: mx, lt01: n > 0 ? lt / n : 0, nan };
 }
 
 export function decodePhonemes(
@@ -190,7 +205,8 @@ export function decodePhonemes(
 
     let maxLogit = -Infinity;
     for (let v = 0; v < vocabSize; v++) {
-      const val = (phFrameLogits[tOff + v] as number) + mask[v];
+      const raw = phFrameLogits[tOff + v] as number;
+      const val = (Number.isFinite(raw) ? raw : -1e3) + mask[v];
       phProbLog[tOff + v] = val;
       if (val > maxLogit) maxLogit = val;
     }
@@ -203,7 +219,8 @@ export function decodePhonemes(
       phProbLog[tOff + v] = phProbLog[tOff + v] - logSum;
     }
 
-    const sig = 1 / (1 + Math.exp(-(phEdgeLogits[t] as number)));
+    const edgeRaw = phEdgeLogits[t] as number;
+    const sig = Number.isFinite(edgeRaw) ? 1 / (1 + Math.exp(-edgeRaw)) : 0.5;
     phEdgePred[t] = Math.max(0, Math.min(1, sig / 0.8));
   }
 

@@ -3,6 +3,7 @@ import { loadModels, runPipeline, disposePipeline, getSofaSession, type ModelPro
 import { runSofaInference } from './client/onnxLoader';
 import { decodePhonemes, edgePredStats } from './client/viterbi';
 import { VOCAB } from './client/g2p';
+import { disposeBeatWorker } from './client/beatDetector';
 
 export interface ChunkEvent {
   type: 'chunk_start' | 'chunk_complete' | 'bpm' | 'error' | 'complete';
@@ -107,6 +108,7 @@ export function analyzeSofaUrlChunked(
 
 export function disposeLocalPipeline(): void {
   disposePipeline();
+  disposeBeatWorker();
   loadingPromise = null;
   setModelLoadState({ status: 'idle' });
 }

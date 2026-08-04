@@ -117,12 +117,14 @@ export class AudioEngine {
     }
 
     if (this.useElement && this.audioElement) {
-      this.mediaSource = this.context.createMediaElementSource(this.audioElement);
-      this.mediaSource.connect(this.analyser!);
-      this.analyser!.connect(this.gainNode!);
-      this.gainNode!.connect(this.context.destination);
+      if (!this.mediaSource) {
+        this.mediaSource = this.context.createMediaElementSource(this.audioElement);
+        this.mediaSource.connect(this.analyser!);
+        this.analyser!.connect(this.gainNode!);
+        this.gainNode!.connect(this.context.destination);
+      }
       this.audioElement.currentTime = this.pauseOffset;
-      this.audioElement.play();
+      this.audioElement.play().catch(() => {});
       this.setPlaying(true);
       this.startLoop();
       this.audioElement.onended = () => {

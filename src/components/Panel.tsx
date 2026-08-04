@@ -181,7 +181,7 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const w = rect.width * dpr;
     const h = rect.height * dpr;
     if (canvas.width !== w || canvas.height !== h) {
@@ -259,18 +259,20 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
     }
 
     let animFrameId: number | null = null;
+    let lastDrawn = { w: -1, h: -1, mouthShape: '', scaleX: 0, scaleY: 0, isBlinking: false, lyric: null as LyricLine | null, energy: 0 };
 
     const frame = (now: number) => {
       if (!running) return;
 
       const d = animDataRef.current;
-
       const rect2 = canvas.getBoundingClientRect();
-      if (canvas.width !== rect2.width * dpr || canvas.height !== rect2.height * dpr) {
-        canvas.width = rect2.width * dpr;
-        canvas.height = rect2.height * dpr;
+      const cw = rect2.width;
+      const ch = rect2.height;
+      const resized = canvas.width !== cw * dpr || canvas.height !== ch * dpr;
+      if (resized) {
+        canvas.width = cw * dpr;
+        canvas.height = ch * dpr;
       }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const currentLyric = d.playbackState.currentLyric;
       if (currentLyric && currentLyric !== prevLyric) {
@@ -278,37 +280,56 @@ export const CanvasPreview = forwardRef<HTMLCanvasElement, CanvasPreviewProps>(f
         lyricTransition = 0;
         lyricTimer = now;
       }
-
       if (lyricTransition < 1) {
-        const elapsed = now - lyricTimer;
-        lyricTransition = Math.min(elapsed / 300, 1);
+        lyricTransition = Math.min((now - lyricTimer) / 300, 1);
       }
 
-      const rc = {
-        ctx,
-        width: rect2.width,
-        height: rect2.height,
-        time: d.playbackState.currentTime,
-        energy: d.playbackState.energy,
-        mouthShape: d.mouthShape,
-        bounceScale: d.bounceScale,
-        currentLyric,
-        assets: d.assets,
-        config: d.config,
-        mouthImagesLoaded: d.mouthImagesLoaded,
-        eyeImagesLoaded: d.eyeImagesLoaded,
-        isBlinking: d.isBlinking,
-        baseImageLoaded: d.baseImageLoaded,
-        prevLyric: null,
-        lyricTransition,
-        transforms: d.transforms ?? {},
-        editMode: d.editMode ?? false,
-        selectedAsset: d.selectedAsset ?? null,
-        visibleBounds: d.visibleBounds,
-      };
+      const b = d.bounceScale;
+      const dirty = resized || d.editMode
+        || d.mouthShape !== lastDrawn.mouthShape
+        || b.scaleX !== lastDrawn.scaleX
+        || b.scaleY !== lastDrawn.scaleY
+        || d.isBlinking !== lastDrawn.isBlinking
+        || currentLyric !== lastDrawn.lyric
+        || lyricTransition < 1
+        || d.playbackState.energy !== lastDrawn.energy;
 
-      renderFrame(rc);
-      ctx.resetTransform();
+      if (dirty) {
+        lastDrawn = {
+          w: cw, h: ch,
+          mouthShape: d.mouthShape,
+          scaleX: b.scaleX,
+          scaleY: b.scaleY,
+          isBlinking: d.isBlinking,
+          lyric: currentLyric,
+          energy: d.playbackState.energy,
+        };
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const rc = {
+          ctx,
+          width: cw,
+          height: ch,
+          time: d.playbackState.currentTime,
+          energy: d.playbackState.energy,
+          mouthShape: d.mouthShape,
+          bounceScale: d.bounceScale,
+          currentLyric,
+          assets: d.assets,
+          config: d.config,
+          mouthImagesLoaded: d.mouthImagesLoaded,
+          eyeImagesLoaded: d.eyeImagesLoaded,
+          isBlinking: d.isBlinking,
+          baseImageLoaded: d.baseImageLoaded,
+          prevLyric: null,
+          lyricTransition,
+          transforms: d.transforms ?? {},
+          editMode: d.editMode ?? false,
+          selectedAsset: d.selectedAsset ?? null,
+          visibleBounds: d.visibleBounds,
+        };
+        renderFrame(rc);
+        ctx.resetTransform();
+      }
 
       if (renderRequestedRef.current) {
         animFrameId = requestAnimationFrame(frame);
@@ -1003,6 +1024,7 @@ export function DebugPanel({
       canvas.width = w;
       canvas.height = h;
     }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
     const W = canvas.clientWidth;
     const H = canvas.clientHeight;
