@@ -36,10 +36,6 @@ function forwardPass(
       if (prob2 > maxVal) { maxVal = prob2; maxIdx = 1; }
       if (prob3 > maxVal) { maxVal = prob3; maxIdx = 2; }
 
-      if (!Number.isFinite(maxVal)) {
-        maxVal = -Infinity;
-      }
-
       dp[tOffset + s] = maxVal;
       backtrackS[tOffset + s] = maxIdx;
     }
@@ -85,11 +81,8 @@ export function decode(
   const edgeProbLog = new Float64Array(T);
   const notEdgeProbLog = new Float64Array(T);
   for (let t = 0; t < T; t++) {
-    const e = Number.isFinite(edgeProb[t] as number)
-      ? Math.max(0, Math.min(1, edgeProb[t] as number))
-      : 0.5;
-    edgeProbLog[t] = Math.log(e + 1e-6);
-    notEdgeProbLog[t] = Math.log(1 - e + 1e-6);
+    edgeProbLog[t] = Math.log(edgeProb[t] + 1e-6);
+    notEdgeProbLog[t] = Math.log(1 - edgeProb[t] + 1e-6);
   }
 
   const currPhMaxProbLog = new Float64Array(S);
@@ -154,25 +147,19 @@ export function decode(
   };
 }
 
-export function edgePredStats(edgeLogits: Float32Array): { mean: number; max: number; lt01: number; nan: number } {
+export function edgePredStats(edgeLogits: Float32Array): { mean: number; max: number; lt01: number } {
   let sum = 0;
   let lt = 0;
   let mx = 0;
-  let nan = 0;
   const n = edgeLogits.length;
   for (let i = 0; i < n; i++) {
-    const raw = edgeLogits[i] as number;
-    if (!Number.isFinite(raw)) {
-      nan++;
-      continue;
-    }
-    const sig = 1 / (1 + Math.exp(-raw));
+    const sig = 1 / (1 + Math.exp(-(edgeLogits[i] as number)));
     const pred = Math.max(0, Math.min(1, sig / 0.8));
     sum += pred;
     if (pred < 0.1) lt++;
     if (pred > mx) mx = pred;
   }
-  return { mean: n > 0 ? sum / n : 0, max: mx, lt01: n > 0 ? lt / n : 0, nan };
+  return { mean: n > 0 ? sum / n : 0, max: mx, lt01: n > 0 ? lt / n : 0 };
 }
 
 export function decodePhonemes(

@@ -20,59 +20,6 @@ export interface ModelProgress {
 
 const FRAME_LENGTH = 512 / (44100 * 4);
 
-function computeRms(x: Float32Array): number {
-  let sum = 0;
-  const n = x.length;
-  for (let i = 0; i < n; i++) {
-    const v = x[i] as number;
-    if (Number.isFinite(v)) sum += v * v;
-  }
-  return n > 0 ? Math.sqrt(sum / n) : 0;
-}
-
-function sanitizeFinite(x: Float32Array): void {
-  for (let i = 0; i < x.length; i++) {
-    if (!Number.isFinite(x[i] as number)) x[i] = 0;
-  }
-}
-
-function validateSeparated(
-  raw: Float32Array,
-  separated: Float32Array,
-  chunkIndex: number,
-): Float32Array {
-  const rawRms = computeRms(raw);
-  const sepRms = computeRms(separated);
-  let nan = 0;
-  let maxAmp = 0;
-  for (let i = 0; i < separated.length; i++) {
-    const v = separated[i] as number;
-    if (!Number.isFinite(v)) {
-      nan++;
-      continue;
-    }
-    const a = Math.abs(v);
-    if (a > maxAmp) maxAmp = a;
-  }
-
-  const nearSilent = sepRms < Math.max(1e-4, rawRms * 0.005);
-  const failed = nan > 0 || nearSilent;
-
-  if (failed) {
-    console.warn(
-      `[sep] chunk ${chunkIndex} 分离失败，回退原始音频 (nan=${nan}, sepRms=${sepRms.toExponential(2)}, rawRms=${rawRms.toExponential(2)}, max=${maxAmp.toExponential(2)})`
-    );
-    sanitizeFinite(raw);
-    return raw;
-  }
-
-  console.log(
-    `[sep] chunk ${chunkIndex}: rms=${sepRms.toExponential(2)} nan=${nan} max=${maxAmp.toExponential(2)} rawRms=${rawRms.toExponential(2)}`
-  );
-  sanitizeFinite(separated);
-  return separated;
-}
-
 interface PipelineState {
   modelLoaded: boolean;
   demucsLoaded: boolean;
@@ -184,14 +131,12 @@ async function processChunk(
   let feed = audio;
   if (useVocalSeparation) {
     setStage('separate');
-    let separated: Float32Array;
     try {
-      separated = await separateVocals(audio);
+      feed = await separateVocals(audio);
     } catch (err) {
       console.warn(`[sep] chunk ${chunkIndex} 分离异常，回退原始音频:`, err);
-      separated = audio;
+      feed = audio;
     }
-    feed = validateSeparated(audio, separated, chunkIndex);
   }
 
   const waveform = new Float32Array(feed.length);
@@ -207,7 +152,7 @@ async function processChunk(
   const result = await runSofaInference(state.sofaSession!, padded);
   const es = edgePredStats(result.phEdgeLogits);
   console.log(
-    `[edge] chunk ${chunkIndex}: mean=${es.mean.toFixed(4)} max=${es.max.toFixed(4)} <0.1占比=${(es.lt01 * 100).toFixed(1)}% NaN=${es.nan}`
+    `[edge] chunk ${chunkIndex}: mean=${es.mean.toFixed(4)} max=${es.max.toFixed(4)} <0.1占比=${(es.lt01 * 100).toFixed(1)}%`
   );
   setStage('decode');
   const { phonemes, confidence } = decodePhonemes(
