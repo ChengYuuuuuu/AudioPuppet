@@ -4,13 +4,26 @@ export async function downloadAndDecodeAudio(url: string): Promise<AudioBuffer |
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
     const arrayBuffer = await blob.arrayBuffer();
-    const ctx = new OfflineAudioContext(1, 1, 44100);
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    return audioBuffer;
+    return await decodeAudioBuffer(arrayBuffer);
   } catch (err) {
     console.error('音频下载/解码失败:', err);
     return null;
   }
+}
+
+export async function fileToAudioBuffer(file: File): Promise<AudioBuffer | null> {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    return await decodeAudioBuffer(arrayBuffer);
+  } catch (err) {
+    console.error('音频文件解码失败:', err);
+    return null;
+  }
+}
+
+async function decodeAudioBuffer(arrayBuffer: ArrayBuffer): Promise<AudioBuffer | null> {
+  const ctx = new OfflineAudioContext(1, 1, 44100);
+  return await ctx.decodeAudioData(arrayBuffer);
 }
 
 export function audioBufferToFloat32(audioBuffer: AudioBuffer, targetSr: number = 44100): Float32Array {

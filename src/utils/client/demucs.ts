@@ -2,9 +2,9 @@ import * as ort from 'onnxruntime-web';
 import { DemucsProcessor } from 'demucs-web';
 import { fetchWithProgress, DEMUCS_MODEL_SIZE } from './onnxLoader';
 
-ort.env.wasm.wasmPaths = '/wasm/';
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
 
-const DEMUCS_MODEL_PATH = '/models/htdemucs_ft_vocals_safe16.onnx';
+const DEMUCS_MODEL_PATH = 'https://pub-73fe157bf73b4d7c9382639fac8a7451.r2.dev/htdemucs_ft_vocals_safe16.onnx';
 
 let processor: DemucsProcessor | null = null;
 let demucsLoaded = false;

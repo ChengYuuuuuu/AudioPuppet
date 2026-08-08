@@ -1,5 +1,6 @@
 import type { SofaPhoneme } from './sofa';
-import { loadModels, runPipeline, disposePipeline, getSofaSession, type ModelProgress } from './client/sofaPipeline';
+import { loadModels, runPipeline, runPipelineOnAudio, disposePipeline, getSofaSession, type ModelProgress } from './client/sofaPipeline';
+import { fileToAudioBuffer } from './client/audioDecoder';
 import { runSofaInference } from './client/onnxLoader';
 import { decodePhonemes, edgePredStats } from './client/viterbi';
 import { VOCAB } from './client/g2p';
@@ -104,6 +105,73 @@ export function analyzeSofaUrlChunked(
   });
 
   return controller;
+}
+
+export interface FileAnalyzeResult {
+  success: boolean;
+  phonemes: SofaPhoneme[];
+  words: Array<{ text: string; start: number; end: number }>;
+  bpm: number | null;
+  beats: number[];
+  confidence: number;
+  error?: string;
+}
+
+export function analyzeSofaFile(
+  file: File,
+  lyricsText: string,
+  useVocalSeparation = false,
+): Promise<FileAnalyzeResult> {
+  return new Promise((resolve) => {
+    const controller = new AbortController();
+    const allPhonemes: SofaPhoneme[] = [];
+    let bpm: number | null = null;
+    let beats: number[] = [];
+    let confidence = 0;
+    let settled = false;
+
+    const finish = (result: FileAnalyzeResult) => {
+      if (!settled) {
+        settled = true;
+        resolve(result);
+      }
+    };
+
+    const callbacks: StreamingCallbacks = {
+      onChunkComplete: (_index, data) => {
+        if (data.phonemes) allPhonemes.push(...data.phonemes);
+        if (typeof data.confidence === 'number') confidence = data.confidence;
+      },
+      onBpm: (b, bt) => {
+        bpm = b;
+        beats = bt;
+      },
+      onError: (message) => {
+        finish({ success: false, phonemes: [], words: [], bpm: null, beats: [], confidence: 0, error: message });
+      },
+      onComplete: () => {
+        allPhonemes.sort((a, b) => a.start - b.start);
+        finish({ success: true, phonemes: allPhonemes, words: [], bpm, beats, confidence });
+      },
+    };
+
+    (async () => {
+      try {
+        await ensureModelsLoaded(undefined, useVocalSeparation);
+        if (controller.signal.aborted) return;
+        const audioBuffer = await fileToAudioBuffer(file);
+        if (!audioBuffer || controller.signal.aborted) {
+          callbacks.onError?.('音频解码失败');
+          return;
+        }
+        await runPipelineOnAudio(audioBuffer, lyricsText, callbacks, useVocalSeparation, controller);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          callbacks.onError?.(err?.message ?? String(err));
+        }
+      }
+    })();
+  });
 }
 
 export function disposeLocalPipeline(): void {

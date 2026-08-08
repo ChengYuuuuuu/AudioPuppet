@@ -1,16 +1,27 @@
+import type { Plugin } from 'vite'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import compression from 'vite-plugin-compression'
-import { viteStaticCopy } from 'vite-plugin-static-copy'
+
+function removeUnusedOrtWasm(): Plugin {
+  return {
+    name: 'remove-unused-ort-wasm',
+    generateBundle(_options, bundle) {
+      for (const name of Object.keys(bundle)) {
+        const base = name.split('/').pop() ?? name
+        if (base.startsWith('ort-wasm-') && base.endsWith('.wasm')) {
+          delete bundle[name]
+          console.log('[cleanup] dropped unused wasm asset:', name)
+        }
+      }
+    },
+  }
+}
 
 export default defineConfig({
   server: {
     host: '127.0.0.1',
     allowedHosts: ['.trycloudflare.com'],
-    proxy: {
-      '/analyze': 'http://localhost:8001',
-      '/log-alignment': 'http://localhost:8001',
-    },
   },
   optimizeDeps: {
     exclude: ['onnxruntime-web'],
@@ -18,18 +29,11 @@ export default defineConfig({
   plugins: [
     react(),
     compression({ algorithm: 'brotliCompress' }),
-    viteStaticCopy({
-      targets: [
-        {
-          src: 'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded*.{mjs,wasm}',
-          dest: 'wasm',
-          rename: { stripBase: true },
-        },
-      ],
-    }),
+    removeUnusedOrtWasm(),
   ],
   build: {
     sourcemap: false,
+    emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks(id: string) {

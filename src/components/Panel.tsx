@@ -13,9 +13,8 @@ import {
   DEFAULT_TRANSFORM,
 } from '../types/index';
 import { parseNeteaseSong } from '../utils/api';
-import { analyzeSofaBlob } from '../utils/sofa';
 import { phonemesToMouthPoints } from '../utils/mouthMapper';
-import { getModelLoadState, subscribeModelLoadState, ensureModelsLoaded, testSofaInference, testSofaLongAlignment } from '../utils/streamingSofa';
+import { getModelLoadState, subscribeModelLoadState, ensureModelsLoaded, testSofaInference, testSofaLongAlignment, analyzeSofaFile } from '../utils/streamingSofa';
 import { getAnalysisState, subscribeAnalysisState, type AnalysisStage } from '../utils/client/analysisDiag';
 import { saveBaseImage, saveMouthImages, saveEyeImages } from '../utils/storage';
 import { renderFrame, getAssetCenter, getAssetSize, computeVisibleBounds, type VisibleBounds } from '../utils/renderer';
@@ -717,7 +716,7 @@ export function RightPanel({
     const file = e.target.files?.[0];
     if (!file) return;
     setFileAnalyzing(true);
-    const result = await analyzeSofaBlob(file, fileLyrics);
+    const result = await analyzeSofaFile(file, fileLyrics, config.vocalSeparation);
     if (result.success && result.phonemes) {
       const mouthPoints = phonemesToMouthPoints(result.phonemes);
       onWhisperResult(mouthPoints);
@@ -727,7 +726,7 @@ export function RightPanel({
     }
     setFileAnalyzing(false);
     e.target.value = '';
-  }, [fileLyrics, onWhisperResult, onFileAnalyze]);
+  }, [fileLyrics, onWhisperResult, onFileAnalyze, config]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);

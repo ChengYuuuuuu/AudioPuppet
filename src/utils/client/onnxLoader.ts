@@ -1,7 +1,7 @@
 import * as ort from 'onnxruntime-web';
 
-ort.env.wasm.wasmPaths = '/wasm/';
-ort.env.wasm.proxy = true;
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
+ort.env.wasm.proxy = false;
 
 if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
   console.log('[ort] WebGPU 可用，当前使用 wasm CPU EP 推理');

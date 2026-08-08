@@ -1,32 +1,100 @@
-ONNX 模型已经内嵌了 mel 提取，meljs 用不上。以下是完整计划：
----
-完整实施计划
-阶段 0：准备工作（你来做）
-#	任务	说明
-0.1	下载 htdemucs-ft-webgpu ONNX	替代现有的 165MB Demucs
-0.2	运行 export_onnx.py 导出 SOFA ONNX	.ckpt → .onnx，会同时生成 config.yaml
-阶段 1：前端基础设施（1-2 天）
-#	任务
-1.1	引入 onnxruntime-web，封装 ONNX Runtime Web 加载器
-1.2	引入 htdemucs-ft-webgpu，包装为人声分离 Worker
-1.3	引入 sab-message-port，建立 Web Worker 通信管道
-阶段 2：核心算法移植（3-4 天）
-#	任务	说明
-2.1	Viterbi 解码器 → 手写 JS	onnx_infer.py:64-121 的 Numba JIT forward_pass，约 60 行
-（手写 Viterbi 算法确实工作量不小，但你不是从零开始。GitHub 上已经有成熟的 JavaScript 实现。你可以直接参考 algorithms-js 库里的 viterbi 函数，它的接口清晰，支持自定义状态、观测和概率矩阵。你只需要将 SOFA 模型输出的 logits 和转移概率矩阵适配进去，能省下 1-2 天调试基础算法的时间。）
-2.2	解码 + 回溯 → 手写 JS	onnx_infer.py:125-186 的 decode 函数
-2.3	后处理 → 手写 JS	fill_small_gaps() + add_SP()，纯逻辑
-2.4	G2P 三语种 → 移植 JS	中文(pypinyin → 字典查表)、日文(pykakasi → 字典)、英文(g2p-en → 映射表)
-阶段 3：前端 Pipeline（2 天）
-#	任务	说明
-3.1	音频下载模块	fetch + Web Audio API 解码
-3.2	分块处理管道	仿 chunked_processor.py，Worker 流水线
-3.3	节拍检测	移植 librosa beat_track 算法或找 JS 替代
-(Pleco-Xa
-它把 librosa.beat.beat_track 完整移植到了 JavaScript，接口几乎一模一样。)
-3.4	替换 streamingSofa.ts	从调后端 API 改为调本地 Worker 管道
-阶段 4：收尾（1 天）
-#	任务
-4.1	移除所有后端调用代码，优化加载体验（模型下载进度等）
-4.2	测试中文/日文/英文对齐效果
-4.3	处理降级/报错
+第一步：构建产物准备
+bash
+npm run build
+构建完成后，你的 dist/ 目录应包含：
+
+assets/（前端代码 + 静态资源）
+
+index.html
+
+不包含 models/（模型不能放静态托管）
+
+第二步：模型文件拆出，上传到 Cloudflare R2
+需要上传的文件：
+
+文件	大小	说明
+sofa_mandarin_simplified.onnx	406 MB	必须放 R2
+htdemucs_ft_vocals_safe16.onnx	84 MB	建议放 R2（Pages 单文件限制 25MB）
+R2 配置步骤：
+
+登录 Cloudflare 控制台 → R2 → 创建存储桶（如 my-app-models）
+
+上传两个 ONNX 文件
+
+设置存储桶为 公开访问
+
+配置 CORS：
+
+json
+{
+  "AllowedOrigins": ["*"],
+  "AllowedMethods": ["GET"],
+  "AllowedHeaders": ["*"]
+}
+记录文件公网 URL：
+
+https://my-app-models.r2.dev/sofa_mandarin_simplified.onnx
+
+https://my-app-models.r2.dev/htdemucs_ft_vocals_safe16.onnx
+
+WASM 文件（≤27MB）：
+
+不需要上传 R2
+
+onnxruntime-web 默认从 CDN（jsdelivr）加载
+
+也可配置 ort.env.wasm.wasmPaths 指向静态托管
+
+第三步：前端代码修改
+onnxLoader.ts 中修改模型路径：
+
+typescript
+// 原来
+const modelPath = '/models/sofa_mandarin_simplified.onnx';
+
+// 改成
+const modelPath = 'https://my-app-models.r2.dev/sofa_mandarin_simplified.onnx';
+同理修改 Demucs 模型路径（demucs.ts 或 processor.js）。
+建议使用环境变量（Vite 的 import.meta.env），避免硬编码。
+
+第四步：静态托管部署
+方式一：GitHub Pages
+
+bash
+npx gh-pages -d dist
+访问：https://<用户名>.github.io/<仓库名>/
+
+方式二：Cloudflare Pages
+
+连接 GitHub 仓库
+
+构建命令：npm run build
+
+输出目录：dist
+
+注意：前端代码请求模型的 URL 必须指向 R2，而非静态托管。
+
+第五步：清理调试代码
+删除或注释 POST /log-alignment 上报逻辑（sofaPipeline.ts）
+
+确认 vocalSeparation 状态正常透传到 processChunk
+
+第六步：验证
+打开部署后的网页
+
+输入歌曲 ID，点击分析
+
+打开 DevTools → Network 面板：
+
+模型从 R2 加载（r2.dev）
+
+WASM 从 CDN 加载
+
+前端代码从静态托管加载
+
+资源存放总览
+资源	存放位置	说明
+前端代码	GitHub / Cloudflare Pages	dist/ 目录
+WASM 文件	CDN	onnxruntime-web 默认加载
+模型文件	Cloudflare R2	公开读取 + CORS 配置
+歌曲信息	meting API（第三方）	在线解析

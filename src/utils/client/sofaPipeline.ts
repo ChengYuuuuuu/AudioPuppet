@@ -8,7 +8,7 @@ import { detectBeats } from './beatDetector';
 import { lyricsToPhonemes } from './g2p';
 import { setAnalysisState, type AnalysisStage } from './analysisDiag';
 
-const SOFA_MODEL_PATH = '/models/sofa_mandarin_simplified.onnx';
+const SOFA_MODEL_PATH = 'https://pub-73fe157bf73b4d7c9382639fac8a7451.r2.dev/sofa_mandarin_simplified.onnx';
 
 export const TOTAL_MODEL_SIZE = SOFA_MODEL_SIZE + DEMUCS_MODEL_SIZE;
 
@@ -170,16 +170,6 @@ async function processChunk(
     end: p.end + offset,
   }));
 
-  try {
-    fetch('/log-alignment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chunk_index: chunkIndex, offset, phonemes: offsetPhonemes }),
-    }).catch(() => {});
-  } catch {
-    // 日志上报失败不影响分析
-  }
-
   const event: ChunkEvent = {
     type: 'chunk_complete',
     index: chunkIndex,
@@ -192,23 +182,14 @@ async function processChunk(
   callbacks.onChunkComplete?.(chunkIndex, event);
 }
 
-export async function runPipeline(
-  audioUrl: string,
+export async function runPipelineOnAudio(
+  audioBuffer: AudioBuffer,
   lyricsText: string,
   callbacks: StreamingCallbacks,
-  useVocalSeparation = false,
-): Promise<AbortController> {
-  const controller = new AbortController();
-
+  useVocalSeparation: boolean,
+  controller: AbortController,
+): Promise<void> {
   try {
-    setStage('audio');
-    const audioBuffer = await downloadAndDecodeAudio(audioUrl);
-    if (!audioBuffer || controller.signal.aborted) {
-      callbacks.onError?.('音频下载失败');
-      callbacks.onComplete?.();
-      return controller;
-    }
-
     const audio = audioBufferToFloat32(audioBuffer, 44100);
     const chunks = extractChunksFromLRC(lyricsText, audio.length / 44100);
 
@@ -231,7 +212,38 @@ export async function runPipeline(
     }
     setAnalysisState({ status: 'done' });
   } catch (err: any) {
-    if (err.name !== 'AbortError') {
+    if (err?.name !== 'AbortError') {
+      setAnalysisState({
+        status: 'error',
+        stage: currentStage,
+        message: err?.message ?? String(err),
+      });
+      callbacks.onError?.(err.message ?? String(err));
+      callbacks.onComplete?.();
+    }
+  }
+}
+
+export async function runPipeline(
+  audioUrl: string,
+  lyricsText: string,
+  callbacks: StreamingCallbacks,
+  useVocalSeparation = false,
+): Promise<AbortController> {
+  const controller = new AbortController();
+
+  try {
+    setStage('audio');
+    const audioBuffer = await downloadAndDecodeAudio(audioUrl);
+    if (!audioBuffer || controller.signal.aborted) {
+      callbacks.onError?.('音频下载失败');
+      callbacks.onComplete?.();
+      return controller;
+    }
+
+    await runPipelineOnAudio(audioBuffer, lyricsText, callbacks, useVocalSeparation, controller);
+  } catch (err: any) {
+    if (err?.name !== 'AbortError') {
       setAnalysisState({
         status: 'error',
         stage: currentStage,
