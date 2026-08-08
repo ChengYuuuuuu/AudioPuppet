@@ -30,5 +30,9 @@
     "vite": "^8.1.0",
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-static-copy": "^4.1.1"
+  },
+  "overrides": {
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3"
   }
 }
